@@ -169,22 +169,26 @@ app.post('/api/property-check', async (req, res) => {
     'Environment Agency flood risk (free)',
     () => fetchFloodRisk({ latitude, longitude }),
   );
-  const epcPromise = runStep(
-    res,
-    'epc',
-    EPC_CONFIGURED
-      ? `EPC Register — energy performance (${EPC_BEARER_TOKEN ? 'Bearer auth' : 'legacy Basic auth'})`
-      : 'EPC Register — skipped (set EPC_BEARER_TOKEN or EPC_EMAIL+EPC_API_KEY)',
-    () =>
-      fetchEpcByPostcode(
-        { postcode: postcodeStr, addressFragment: address },
-        {
-          bearerToken: EPC_BEARER_TOKEN,
-          email: EPC_EMAIL,
-          apiKey: EPC_API_KEY,
-          baseUrl: EPC_BASE_URL,
-        },
-      ),
+  const epcLabel = EPC_CONFIGURED
+    ? `EPC Register — energy performance (${
+        EPC_BEARER_TOKEN
+          ? `Bearer auth, token len=${EPC_BEARER_TOKEN.length}`
+          : 'legacy Basic auth'
+      })`
+    : `EPC Register — NOT CONFIGURED · env vars seen: BEARER=${
+        EPC_BEARER_TOKEN ? 'set' : 'missing'
+      }, EMAIL=${EPC_EMAIL ? 'set' : 'missing'}, API_KEY=${EPC_API_KEY ? 'set' : 'missing'}`;
+
+  const epcPromise = runStep(res, 'epc', epcLabel, () =>
+    fetchEpcByPostcode(
+      { postcode: postcodeStr, addressFragment: address },
+      {
+        bearerToken: EPC_BEARER_TOKEN,
+        email: EPC_EMAIL,
+        apiKey: EPC_API_KEY,
+        baseUrl: EPC_BASE_URL,
+      },
+    ),
   );
   const lsoaCode = geo.value?.codes?.lsoa || null;
   const imdPromise = runStep(

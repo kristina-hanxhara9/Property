@@ -49,12 +49,21 @@ export async function fetchEpcByPostcode(
   });
 
   if (res.status === 401 || res.status === 403) {
+    let bodyText = '';
+    try {
+      bodyText = await res.text();
+    } catch {
+      // ignore
+    }
+    const detail = bodyText.slice(0, 200).replace(/\s+/g, ' ').trim();
     throw new Error(
-      'EPC API authentication failed — check your Bearer token (or EPC_EMAIL + EPC_API_KEY for legacy auth).',
+      `EPC API ${res.status} (${bearerToken ? 'Bearer' : 'Basic'} auth, URL: ${url.host}). ${
+        detail || 'Token may be wrong, expired, or for a different service.'
+      }`,
     );
   }
   if (!res.ok) {
-    throw new Error(`EPC API returned ${res.status}`);
+    throw new Error(`EPC API returned ${res.status} from ${url.host}`);
   }
   const body = await res.json();
   const rows = body?.rows || body?.data || [];
