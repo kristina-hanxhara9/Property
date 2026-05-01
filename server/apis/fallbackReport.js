@@ -416,6 +416,17 @@ function buildEpcSummary(epcMatch, epcResult) {
       keyRecommendations: [notConfiguredMessage],
     };
   }
+  // The EPC step produced an error (e.g. 401 unauthorized).
+  if (epcResult.error) {
+    return {
+      currentRating: 'API error',
+      currentScore: null,
+      potentialRating: 'API error',
+      potentialScore: null,
+      lodgedDate: null,
+      keyRecommendations: [epcResult.error],
+    };
+  }
   if (epcResult.configured === false) {
     return {
       currentRating: 'Not configured',

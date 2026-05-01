@@ -1,21 +1,26 @@
-// EPC Register integration.
-// Supports both auth methods during the migration window:
-//   1. NEW: Bearer token (post-May-2026, "Get energy performance of buildings data service")
-//      Set EPC_BEARER_TOKEN.
-//   2. LEGACY: HTTP Basic with email:api-key (epc.opendatacommunities.org, retires 30 May 2026)
-//      Set EPC_EMAIL + EPC_API_KEY.
-// If both are configured, Bearer takes precedence.
+// EPC integration.
 //
-// The endpoint URL itself is configurable via EPC_BASE_URL since the service
-// is migrating. Default points at the long-standing opendatacommunities path
-// which still serves both auth styles during the transition.
+// The MHCLG service that issues bearer tokens lives at:
+//   https://api.epb.digital.communities.gov.uk/api
+// (NEW — replaces epc.opendatacommunities.org which retires 30 May 2026)
+//
+// Flow:
+//   1. GET /assessments/domestic-epcs/search?postcode=...&buildingNameOrNumber=...
+//      → returns { data: { assessments: [{ epcRrn, address }, ...] } }
+//   2. GET /assessments/{epcRrn}/certificate-summary
+//      → returns full ratings, lodgement date, recommendations
+//
+// Auth: Authorization: Bearer <token>
+//
+// Legacy fallback: if a bearer token is NOT set but EPC_EMAIL + EPC_API_KEY
+// are, fall back to the old opendatacommunities Basic-auth flow (same
+// hostname, single-step search returns ratings inline).
 
-const DEFAULT_BASE_URL = 'https://epc.opendatacommunities.org/api/v1/domestic/search';
+const NEW_BASE = 'https://api.epb.digital.communities.gov.uk/api';
+const LEGACY_BASE = 'https://epc.opendatacommunities.org/api/v1/domestic/search';
 
 function buildAuthHeader({ bearerToken, email, apiKey }) {
-  if (bearerToken) {
-    return { Authorization: `Bearer ${bearerToken}` };
-  }
+  if (bearerToken) return { Authorization: `Bearer ${bearerToken}` };
   if (email && apiKey) {
     const encoded = Buffer.from(`${email}:${apiKey}`).toString('base64');
     return { Authorization: `Basic ${encoded}` };
@@ -33,47 +38,137 @@ export async function fetchEpcByPostcode(
       configured: false,
       results: [],
       note:
-        'EPC API not configured. Set EPC_BEARER_TOKEN (preferred — new service) or EPC_EMAIL + EPC_API_KEY (legacy, retires 30 May 2026).',
+        'EPC API not configured. Set EPC_BEARER_TOKEN (preferred — new MHCLG service) or legacy EPC_EMAIL + EPC_API_KEY on the backend.',
     };
   }
 
-  const url = new URL(baseUrl || DEFAULT_BASE_URL);
-  url.searchParams.set('postcode', postcode);
-  url.searchParams.set('size', '20');
+  if (bearerToken) {
+    return await fetchViaNewService({ postcode, addressFragment, auth, baseUrl });
+  }
+  return await fetchViaLegacyService({ postcode, addressFragment, auth, baseUrl });
+}
+
+async function fetchViaNewService({ postcode, addressFragment, auth, baseUrl }) {
+  const base = baseUrl || NEW_BASE;
+
+  // 1. Search by postcode
+  const searchUrl = new URL(`${base}/assessments/domestic-epcs/search`);
+  searchUrl.searchParams.set('postcode', postcode);
   if (addressFragment) {
-    url.searchParams.set('address', addressFragment);
+    searchUrl.searchParams.set('buildingNameOrNumber', extractBuildingPart(addressFragment));
   }
 
-  const res = await fetch(url, {
+  const searchRes = await fetch(searchUrl, {
     headers: { ...auth, Accept: 'application/json' },
   });
 
-  if (res.status === 401 || res.status === 403) {
-    let bodyText = '';
+  if (searchRes.status === 401 || searchRes.status === 403) {
+    let body = '';
     try {
-      bodyText = await res.text();
+      body = await searchRes.text();
     } catch {
-      // ignore
+      /* ignore */
     }
-    const detail = bodyText.slice(0, 200).replace(/\s+/g, ' ').trim();
     throw new Error(
-      `EPC API ${res.status} (${bearerToken ? 'Bearer' : 'Basic'} auth, URL: ${url.host}). ${
-        detail || 'Token may be wrong, expired, or for a different service.'
-      }`,
+      `EPC API ${searchRes.status} (Bearer auth, ${searchUrl.host}): ${body.slice(0, 180).replace(/\s+/g, ' ').trim() || 'Not authorized'}`,
     );
   }
-  if (!res.ok) {
-    throw new Error(`EPC API returned ${res.status} from ${url.host}`);
+  if (!searchRes.ok) {
+    throw new Error(`EPC search returned ${searchRes.status} from ${searchUrl.host}`);
   }
-  const body = await res.json();
-  const rows = body?.rows || body?.data || [];
+
+  const searchBody = await searchRes.json();
+  const assessments = searchBody?.data?.assessments || [];
+
+  // 2. Pick best match by address, then fetch certificate-summary
+  const bestRrn = pickBestRrn(assessments, addressFragment);
+  let summary = null;
+  if (bestRrn) {
+    try {
+      summary = await fetchCertificateSummary(base, bestRrn, auth);
+    } catch (err) {
+      // search worked but summary failed (different scope?) — keep going with search-only data
+      summary = { _summaryError: err.message };
+    }
+  }
 
   return {
     configured: true,
-    authStyle: bearerToken ? 'bearer' : 'basic',
+    authStyle: 'bearer-new',
+    count: assessments.length,
+    results: assessments.map((a) => ({
+      epcRrn: a.epcRrn,
+      address: joinNewAddress(a.address),
+      // Ratings only present if this RRN matched and we fetched the summary
+      ...(a.epcRrn === bestRrn && summary && !summary._summaryError
+        ? extractRatingsFromSummary(summary)
+        : {}),
+    })),
+    summaryError: summary?._summaryError || null,
+  };
+}
+
+async function fetchCertificateSummary(base, rrn, auth) {
+  const url = `${base}/assessments/${encodeURIComponent(rrn)}/certificate-summary`;
+  const res = await fetch(url, { headers: { ...auth, Accept: 'application/json' } });
+  if (!res.ok) {
+    throw new Error(`certificate-summary returned ${res.status}`);
+  }
+  return await res.json();
+}
+
+function extractRatingsFromSummary(body) {
+  // The summary response is a discriminated union; field names live in nested
+  // `data` objects. Try several plausible paths so we tolerate schema drift.
+  const d = body?.data || body;
+  return {
+    currentRating:
+      d?.currentEnergyRating || d?.current_energy_rating || d?.energyRating || null,
+    currentScore: numberOrNull(
+      d?.currentEnergyEfficiency || d?.current_energy_efficiency || d?.energyEfficiency,
+    ),
+    potentialRating:
+      d?.potentialEnergyRating || d?.potential_energy_rating || null,
+    potentialScore: numberOrNull(
+      d?.potentialEnergyEfficiency || d?.potential_energy_efficiency,
+    ),
+    lodgementDate: d?.lodgementDate || d?.lodgement_date || null,
+    propertyType: d?.propertyType || d?.property_type || null,
+    builtForm: d?.builtForm || d?.built_form || null,
+    totalFloorArea: numberOrNull(d?.totalFloorArea || d?.total_floor_area),
+    mainHeating: d?.mainHeatDescription || d?.main_heat_description || d?.mainHeating || null,
+  };
+}
+
+async function fetchViaLegacyService({ postcode, addressFragment, auth, baseUrl }) {
+  const url = new URL(baseUrl || LEGACY_BASE);
+  url.searchParams.set('postcode', postcode);
+  url.searchParams.set('size', '20');
+  if (addressFragment) url.searchParams.set('address', addressFragment);
+
+  const res = await fetch(url, { headers: { ...auth, Accept: 'application/json' } });
+
+  if (res.status === 401 || res.status === 403) {
+    let body = '';
+    try {
+      body = await res.text();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(
+      `EPC API ${res.status} (Basic auth, ${url.host}): ${body.slice(0, 180).replace(/\s+/g, ' ').trim() || 'Not authorized'}`,
+    );
+  }
+  if (!res.ok) throw new Error(`EPC API returned ${res.status} from ${url.host}`);
+  const body = await res.json();
+  const rows = body?.rows || [];
+
+  return {
+    configured: true,
+    authStyle: 'basic-legacy',
     count: rows.length,
     results: rows.map((r) => ({
-      address: r.address || joinAddress(r),
+      address: r.address || joinLegacyAddress(r),
       lodgementDate: r['lodgement-date'] || r.lodgement_date || null,
       currentRating: r['current-energy-rating'] || r.current_energy_rating || null,
       currentScore: numberOrNull(r['current-energy-efficiency'] || r.current_energy_efficiency),
@@ -91,10 +186,25 @@ export async function fetchEpcByPostcode(
   };
 }
 
-function joinAddress(r) {
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function joinNewAddress(addr) {
+  if (!addr) return null;
+  return [addr.addressLine1, addr.addressLine2, addr.addressLine3, addr.addressLine4, addr.town, addr.postcode]
+    .filter(Boolean)
+    .join(', ');
+}
+
+function joinLegacyAddress(r) {
   return [r.address1, r.address2, r.address3, r.posttown, r.postcode]
     .filter(Boolean)
     .join(', ');
+}
+
+function extractBuildingPart(addressFragment) {
+  // Pull the leading number/name token from "10 Downing Street, ..." → "10"
+  const m = String(addressFragment).match(/^(\d+\w?|[A-Z][\w'-]+)/);
+  return m ? m[1] : '';
 }
 
 function numberOrNull(v) {
@@ -103,12 +213,11 @@ function numberOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-// Choose the best EPC match for a given address — exact match preferred.
 export function pickBestEpc(epcResult, addressHint) {
   if (!epcResult?.results || epcResult.results.length === 0) return null;
   if (epcResult.results.length === 1) return epcResult.results[0];
-
   if (!addressHint) return epcResult.results[0];
+
   const hint = String(addressHint).toUpperCase();
   const ranked = [...epcResult.results].map((r) => ({
     r,
@@ -116,6 +225,19 @@ export function pickBestEpc(epcResult, addressHint) {
   }));
   ranked.sort((a, b) => b.score - a.score);
   return ranked[0].r;
+}
+
+function pickBestRrn(assessments, addressFragment) {
+  if (!assessments || assessments.length === 0) return null;
+  if (assessments.length === 1) return assessments[0].epcRrn;
+  if (!addressFragment) return assessments[0].epcRrn;
+  const hint = String(addressFragment).toUpperCase();
+  const ranked = [...assessments].map((a) => ({
+    a,
+    score: scoreMatch(joinNewAddress(a.address)?.toUpperCase() || '', hint),
+  }));
+  ranked.sort((x, y) => y.score - x.score);
+  return ranked[0].a.epcRrn;
 }
 
 function scoreMatch(a, b) {

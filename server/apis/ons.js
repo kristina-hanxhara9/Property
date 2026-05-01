@@ -24,19 +24,27 @@ export async function fetchImdDecile(lsoaCode) {
   `;
 
   const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}&output=json`;
-  const res = await fetch(url, { headers: { Accept: 'application/sparql-results+json' } });
 
-  if (!res.ok) {
-    throw new Error(`IMD SPARQL query returned ${res.status}`);
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/sparql-results+json' } });
+    if (!res.ok) return null;
+    // The endpoint occasionally returns an HTML error page. Detect that and
+    // fail gracefully rather than blowing up the whole property report.
+    const text = await res.text();
+    const trimmed = text.trim();
+    if (!trimmed.startsWith('{')) {
+      return null;
+    }
+    const body = JSON.parse(trimmed);
+    const row = body?.results?.bindings?.[0];
+    if (!row) return null;
+    return {
+      decile: numberOrNull(row.decile?.value),
+      score: numberOrNull(row.score?.value),
+    };
+  } catch {
+    return null;
   }
-  const body = await res.json();
-  const row = body?.results?.bindings?.[0];
-  if (!row) return null;
-
-  return {
-    decile: numberOrNull(row.decile?.value),
-    score: numberOrNull(row.score?.value),
-  };
 }
 
 // ONS rental data — UK headline IPHRP growth rate (% YoY).

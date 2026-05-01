@@ -51,6 +51,10 @@ const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-6';
 
 const app = express();
+// Render and most PaaS providers terminate TLS at a proxy and forward the
+// originating IP via X-Forwarded-For. Tell Express to trust ONE proxy hop so
+// req.ip resolves correctly and express-rate-limit doesn't throw.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '256kb' }));
 app.use(
   cors({
@@ -225,7 +229,7 @@ app.post('/api/property-check', async (req, res) => {
     : null;
   apiResults.planning = planning.value || null;
   apiResults.flood = flood.value || null;
-  apiResults.epc = epc.value || null;
+  apiResults.epc = epc.value || (epc.error ? { configured: true, error: epc.error, results: [] } : null);
   apiResults.epcMatch = epc.value ? pickBestEpc(epc.value, address) : null;
   apiResults.imd = imd.value || null;
   apiResults.onsRental = onsRental.value || null;
