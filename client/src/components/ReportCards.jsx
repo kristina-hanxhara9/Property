@@ -173,6 +173,17 @@ function PlanningCard({ report }) {
       {p.planningNotes && (
         <p className="border-t border-slate-100 pt-3 text-sm text-slate-600">{p.planningNotes}</p>
       )}
+      {report.planningHistoryLink && (
+        <a
+          href={report.planningHistoryLink.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block rounded-lg bg-cream-50 p-3 text-sm hover:bg-cream-100"
+        >
+          <span className="font-semibold text-claude-700">📑 {report.planningHistoryLink.name} ↗</span>
+          <span className="block text-xs text-slate-600">{report.planningHistoryLink.note}</span>
+        </a>
+      )}
     </CardShell>
   );
 }
@@ -234,13 +245,33 @@ function FloodRow({ label, value, bool }) {
 
 function GroundCard({ report }) {
   const g = report.groundRisk || {};
+  const links = (g.links || []).filter(Boolean);
   return (
-    <CardShell title="Ground & environmental" source="Source: BGS / radon datasets (Phase 2)">
+    <CardShell title="Ground & environmental" source="Source: UK Radon / BGS / Coal Authority">
       <Field label="Stability rating" value={g.stabilityRating} />
       <Field label="Radon band" value={g.radonBand} />
       <Field label="Mining risk" value={g.miningRisk ? 'Possible' : 'Not flagged'} />
       {g.hazardTypes && g.hazardTypes.length > 0 && (
         <BulletList label="Hazard types" items={g.hazardTypes} empty="None" />
+      )}
+      {links.length > 0 && (
+        <div className="space-y-1.5 border-t border-cream-200 pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
+            Authoritative sources
+          </p>
+          {links.map((l) => (
+            <a
+              key={l.url}
+              href={l.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
+            >
+              <span className="font-semibold text-claude-700">{l.name} ↗</span>
+              <span className="block text-slate-600">{l.note}</span>
+            </a>
+          ))}
+        </div>
       )}
     </CardShell>
   );
@@ -249,8 +280,8 @@ function GroundCard({ report }) {
 function EpcCard({ report }) {
   const e = report.epcData || {};
   return (
-    <CardShell title="Energy performance" source="Source: EPC Register (Phase 2)">
-      <div className="flex items-center gap-4">
+    <CardShell title="Energy performance" source="Source: EPC Register">
+      <div className="flex flex-wrap items-center gap-4">
         <RatingBadge rating={e.currentRating} />
         <div className="text-sm">
           <p className="text-slate-500">Current</p>
@@ -267,10 +298,14 @@ function EpcCard({ report }) {
           </p>
         </div>
       </div>
-      {e.keyRecommendations && e.keyRecommendations.length > 0 && (
-        <BulletList label="Recommendations" items={e.keyRecommendations} empty="None" />
-      )}
+      {e.address && <Field label="Matched record" value={e.address} />}
+      {e.propertyType && <Field label="Property type" value={`${e.propertyType}${e.builtForm ? ' · ' + e.builtForm : ''}`} />}
+      {e.totalFloorArea && <Field label="Floor area" value={`${e.totalFloorArea} m²`} mono />}
+      {e.mainHeating && <Field label="Main heating" value={e.mainHeating} />}
       {e.lodgedDate && <Field label="Lodged" value={e.lodgedDate} />}
+      {e.keyRecommendations && e.keyRecommendations.length > 0 && (
+        <BulletList label="Notes" items={e.keyRecommendations} empty="None" />
+      )}
     </CardShell>
   );
 }
@@ -301,16 +336,41 @@ function RatingBadge({ rating, muted }) {
 
 function MarketCard({ report }) {
   const m = report.marketContext || {};
+  const idx = m.ukRentalIndex;
   return (
     <CardShell title="Market context" source="Source: ONS / Land Registry HPI">
       <Field label="Local authority" value={m.localAuthority} />
+      <Field
+        label="Deprivation decile (IMD 2019)"
+        value={
+          m.deprivationDecile != null
+            ? `${m.deprivationDecile}/10${m.deprivationContext ? ` — ${m.deprivationContext}` : ''}`
+            : 'Unknown'
+        }
+      />
+      {idx && (
+        <Field
+          label={`UK rental price index (${idx.time || 'latest'})`}
+          value={`${idx.value} (Jan 2015 = 100)`}
+          mono
+        />
+      )}
       <Field label="Avg household income" value={m.avgHouseholdIncome} />
       <Field label="Population trend" value={m.populationGrowthTrend} />
       <Field label="Employment rate" value={m.employmentRate} />
-      <Field label="Deprivation decile" value={m.deprivationDecile} mono />
       <Field label="Avg rental yield" value={m.avgRentalYield} />
       <Field label="Avg rent" value={m.avgRent} />
       <Field label="Demand rating" value={m.demandRating} />
+      {idx?.sourceUrl && (
+        <a
+          href={idx.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-semibold text-claude-700 hover:underline"
+        >
+          ONS Index of Private Housing Rental Prices ↗
+        </a>
+      )}
     </CardShell>
   );
 }

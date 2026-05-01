@@ -9,6 +9,18 @@ import { fetchPricePaidByPostcode, summarisePriceHistory } from './apis/landRegi
 import { fetchPlanningConstraints } from './apis/planningData.js';
 import { fetchFloodRisk } from './apis/floodRisk.js';
 import { searchCompanies, fetchCompanyBundle } from './apis/companiesHouse.js';
+import { fetchEpcByPostcode, pickBestEpc } from './apis/epc.js';
+import {
+  fetchImdDecile,
+  fetchOnsRentalGrowth,
+  fetchOnsRegionalRentalGrowth,
+} from './apis/ons.js';
+import {
+  buildRadonLink,
+  buildGroundStabilityLink,
+  buildMiningLink,
+  buildPlanItLink,
+} from './apis/environmentalLinks.js';
 import {
   buildPropertyFallbackReport,
   buildCompanyFallbackReport,
@@ -16,11 +28,17 @@ import {
 
 import { PROPERTY_SYSTEM_PROMPT, buildPropertyUserMessage } from './prompts/propertyAnalysis.js';
 import { COMPANY_SYSTEM_PROMPT, buildCompanyUserMessage } from './prompts/companyAnalysis.js';
+import {
+  COMPARABLES_SYSTEM_PROMPT,
+  buildComparablesUserMessage,
+} from './prompts/comparablesAgent.js';
 
 const PORT = Number(process.env.PORT || 3001);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:5173';
 const COMPANIES_HOUSE_KEY = process.env.COMPANIES_HOUSE_KEY || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const EPC_EMAIL = process.env.EPC_EMAIL || '';
+const EPC_API_KEY = process.env.EPC_API_KEY || '';
 
 if (!ANTHROPIC_API_KEY) {
   console.warn('[propertyiq] ANTHROPIC_API_KEY is not set — Claude synthesis will fail.');
@@ -148,15 +166,42 @@ app.post('/api/property-check', async (req, res) => {
     'Environment Agency flood risk (free)',
     () => fetchFloodRisk({ latitude, longitude }),
   );
+  const epcPromise = runStep(
+    res,
+    'epc',
+    EPC_API_KEY
+      ? 'EPC Register — energy performance (free)'
+      : 'EPC Register — skipped (set EPC_EMAIL and EPC_API_KEY)',
+    () => fetchEpcByPostcode({ postcode: postcodeStr, addressFragment: address }, { email: EPC_EMAIL, apiKey: EPC_API_KEY }),
+  );
+  const lsoaCode = geo.value?.codes?.lsoa || null;
+  const imdPromise = runStep(
+    res,
+    'imd',
+    'ONS Index of Multiple Deprivation (free SPARQL)',
+    () => fetchImdDecile(lsoaCode),
+  );
+  const onsRentalPromise = runStep(
+    res,
+    'ons-rental',
+    'ONS Index of Private Housing Rental Prices (free)',
+    () => fetchOnsRentalGrowth(),
+  );
 
-  const [pricePaid, planning, flood] = await Promise.all([
+  const [pricePaid, planning, flood, epc, imd, onsRental] = await Promise.all([
     pricePaidPromise,
     planningPromise,
     floodPromise,
+    epcPromise,
+    imdPromise,
+    onsRentalPromise,
   ]);
   if (!pricePaid.ok) apisFailed.push('land-registry-price-paid');
   if (!planning.ok) apisFailed.push('planning-data-gov-uk');
   if (!flood.ok) apisFailed.push('environment-agency-flood');
+  if (!epc.ok) apisFailed.push('epc-register');
+  if (!imd.ok) apisFailed.push('ons-imd');
+  if (!onsRental.ok) apisFailed.push('ons-rental');
 
   apiResults.pricePaid = pricePaid.value || null;
   apiResults.priceSummary = pricePaid.value
@@ -164,10 +209,20 @@ app.post('/api/property-check', async (req, res) => {
     : null;
   apiResults.planning = planning.value || null;
   apiResults.flood = flood.value || null;
+  apiResults.epc = epc.value || null;
+  apiResults.epcMatch = epc.value ? pickBestEpc(epc.value, address) : null;
+  apiResults.imd = imd.value || null;
+  apiResults.onsRental = onsRental.value || null;
+  apiResults.environmentalLinks = {
+    radon: buildRadonLink(postcodeStr),
+    groundStability: buildGroundStabilityLink(postcodeStr),
+    mining: buildMiningLink(postcodeStr),
+    planningHistory: buildPlanItLink(postcodeStr),
+  };
 
   sseSend(res, 'partial-data', { partial: apiResults });
 
-  const apisQueried = 4;
+  const apisQueried = 7;
   const apisSuccessful = apisQueried - apisFailed.length;
 
   const rawDataForReport = {
@@ -392,6 +447,101 @@ app.post('/api/company-check', async (req, res) => {
       error: err?.message || 'Claude error',
     });
     sseSend(res, 'report', fallbackReport);
+  }
+
+  res.end();
+});
+
+app.post('/api/comparables', async (req, res) => {
+  const { postcode, address, lastSalePrice, lastSaleDate, propertyType } = req.body || {};
+  if (!postcode) {
+    res.status(400).json({ error: 'postcode required.' });
+    return;
+  }
+  if (!ANTHROPIC_API_KEY) {
+    res.status(503).json({
+      error:
+        'Market comparables agent requires ANTHROPIC_API_KEY to be configured on the server. This feature uses Claude with web search.',
+    });
+    return;
+  }
+
+  sseHeaders(res);
+  sseSend(res, 'step', {
+    name: 'comparables',
+    label: 'Searching Rightmove / Zoopla / OnTheMarket via Claude web search',
+    status: 'running',
+  });
+
+  let collected = '';
+  try {
+    const stream = anthropic.messages.stream({
+      model: MODEL,
+      max_tokens: 4000,
+      system: COMPARABLES_SYSTEM_PROMPT,
+      tools: [
+        {
+          type: 'web_search_20260209',
+          name: 'web_search',
+          max_uses: 6,
+          allowed_domains: [
+            'rightmove.co.uk',
+            'zoopla.co.uk',
+            'onthemarket.com',
+            'spareroom.co.uk',
+            'gov.uk',
+            'ons.gov.uk',
+          ],
+        },
+      ],
+      messages: [
+        {
+          role: 'user',
+          content: buildComparablesUserMessage({
+            postcode,
+            address,
+            lastSalePrice,
+            lastSaleDate,
+            propertyType,
+          }),
+        },
+      ],
+    });
+
+    stream.on('text', (delta) => {
+      collected += delta;
+      sseSend(res, 'delta', { text: delta });
+    });
+
+    const finalMessage = await stream.finalMessage();
+    const fullText = finalMessage.content
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+    const parsed = tryParseJson(fullText) || tryParseJson(collected);
+
+    sseSend(res, 'step', {
+      name: 'comparables',
+      label: 'Claude web-search comparables analysis',
+      status: 'complete',
+    });
+
+    if (parsed) {
+      sseSend(res, 'comparables', parsed);
+    } else {
+      sseSend(res, 'error', {
+        message: 'Claude returned a response that could not be parsed as JSON.',
+        raw: fullText.slice(0, 4000),
+      });
+    }
+  } catch (err) {
+    sseSend(res, 'step', {
+      name: 'comparables',
+      label: 'Claude web-search comparables analysis',
+      status: 'failed',
+      error: err?.message || 'Claude error',
+    });
+    sseSend(res, 'error', { message: err?.message || 'Comparables agent failed.' });
   }
 
   res.end();

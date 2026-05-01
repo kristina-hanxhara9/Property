@@ -308,31 +308,29 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
     },
 
     groundRisk: {
-      stabilityRating: 'Unknown',
+      stabilityRating: 'See BGS GeoIndex',
       hazardTypes: [],
-      radonBand: 'Unknown',
+      radonBand: 'See UK Radon map',
       miningRisk: false,
+      links: rawData?.environmentalLinks
+        ? [
+            rawData.environmentalLinks.radon,
+            rawData.environmentalLinks.groundStability,
+            rawData.environmentalLinks.mining,
+          ]
+        : [],
     },
 
-    epcData: {
-      currentRating: 'Unknown',
-      currentScore: null,
-      potentialRating: 'Unknown',
-      potentialScore: null,
-      lodgedDate: null,
-      keyRecommendations: [],
-    },
+    epcData: buildEpcSummary(rawData?.epcMatch, rawData?.epc),
 
-    marketContext: {
-      localAuthority: rawData?.postcode?.adminDistrict || lpaName || 'Unknown',
-      avgHouseholdIncome: 'Unknown',
-      populationGrowthTrend: 'Unknown',
-      employmentRate: 'Unknown',
-      deprivationDecile: null,
-      avgRentalYield: 'Unknown',
-      avgRent: 'Unknown',
-      demandRating: 'Unknown',
-    },
+    marketContext: buildMarketContext({
+      postcodeData: rawData?.postcode,
+      lpaName,
+      imd: rawData?.imd,
+      onsRental: rawData?.onsRental,
+    }),
+
+    planningHistoryLink: rawData?.environmentalLinks?.planningHistory || null,
 
     flags,
 
@@ -344,14 +342,156 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
     recommendedNextSteps: buildPropertyNextSteps({ listed, conservation, flood, transactions }),
 
     dataQuality: {
-      apisQueried: meta.apisQueried || 4,
-      apisSuccessful: meta.apisSuccessful || 4,
+      apisQueried: meta.apisQueried || 7,
+      apisSuccessful: meta.apisSuccessful || 7,
       apisFailed: meta.apisFailed || [],
-      dataCompleteness: !transactions.length || flood.riverAndSea === 'Unknown' ? 'Low' : 'Medium',
+      dataCompleteness:
+        rawData?.epcMatch && rawData?.imd
+          ? 'High'
+          : rawData?.epcMatch || rawData?.imd
+          ? 'Medium'
+          : 'Low',
     },
   };
 
+  // IMD flag
+  if (rawData?.imd?.decile != null) {
+    const d = rawData.imd.decile;
+    if (d <= 2) {
+      report.flags.unshift({
+        severity: 'warning',
+        category: 'market',
+        title: `IMD decile ${d} — among the most deprived 20% of areas in England`,
+        detail: 'High deprivation can affect demand profile and rental tenant mix. Verify against demand evidence locally.',
+      });
+      report.keyRisks = pickKeyItems(report.flags, ['critical', 'warning'], 3);
+    } else if (d >= 8) {
+      report.flags.push({
+        severity: 'ok',
+        category: 'market',
+        title: `IMD decile ${d} — among the least deprived 20% of areas in England`,
+        detail: 'Low-deprivation areas typically support higher rents and lower void risk.',
+      });
+      report.keyOpportunities = pickKeyItems(report.flags, ['ok'], 3);
+    }
+  }
+
+  // EPC flag — sub-D ratings carry MEES rental letting risk
+  if (rawData?.epcMatch?.currentRating) {
+    const r = String(rawData.epcMatch.currentRating).toUpperCase();
+    if (['F', 'G'].includes(r)) {
+      report.flags.unshift({
+        severity: 'critical',
+        category: 'legal',
+        title: `EPC rating ${r} — below MEES minimum`,
+        detail:
+          'Properties below EPC E cannot legally be let on a new tenancy in England (subject to exemptions). Required upgrade before letting.',
+      });
+      report.riskScore = Math.min(10, report.riskScore + 1);
+    } else if (r === 'E') {
+      report.flags.push({
+        severity: 'warning',
+        category: 'legal',
+        title: 'EPC rating E — at MEES minimum',
+        detail:
+          'Currently meets the MEES floor for new tenancies, but the floor is expected to rise to C by 2028 for new lets. Plan upgrades.',
+      });
+    }
+  }
+
   return report;
+}
+
+function buildEpcSummary(epcMatch, epcResult) {
+  if (!epcResult) {
+    return {
+      currentRating: 'Not configured',
+      currentScore: null,
+      potentialRating: 'Not configured',
+      potentialScore: null,
+      lodgedDate: null,
+      keyRecommendations: [
+        'Configure EPC_EMAIL and EPC_API_KEY (free at epc.opendatacommunities.org) to enable EPC lookup.',
+      ],
+    };
+  }
+  if (epcResult.configured === false) {
+    return {
+      currentRating: 'Not configured',
+      currentScore: null,
+      potentialRating: 'Not configured',
+      potentialScore: null,
+      lodgedDate: null,
+      keyRecommendations: [
+        epcResult.note || 'Configure EPC_EMAIL and EPC_API_KEY to enable EPC lookup.',
+      ],
+    };
+  }
+  if (!epcMatch) {
+    return {
+      currentRating: 'No record',
+      currentScore: null,
+      potentialRating: 'No record',
+      potentialScore: null,
+      lodgedDate: null,
+      keyRecommendations: [
+        `Searched the EPC Register for postcode but found no matching record. ${
+          epcResult.count ? `${epcResult.count} other certificates exist nearby.` : ''
+        }`.trim(),
+      ],
+    };
+  }
+  return {
+    currentRating: epcMatch.currentRating || 'Unknown',
+    currentScore: epcMatch.currentScore,
+    potentialRating: epcMatch.potentialRating || 'Unknown',
+    potentialScore: epcMatch.potentialScore,
+    lodgedDate: epcMatch.lodgementDate,
+    propertyType: epcMatch.propertyType,
+    builtForm: epcMatch.builtForm,
+    totalFloorArea: epcMatch.totalFloorArea,
+    mainHeating: epcMatch.mainHeating,
+    address: epcMatch.address,
+    keyRecommendations: [],
+  };
+}
+
+function buildMarketContext({ postcodeData, lpaName, imd, onsRental }) {
+  const ctx = {
+    localAuthority: postcodeData?.adminDistrict || lpaName || 'Unknown',
+    avgHouseholdIncome: 'Unknown',
+    populationGrowthTrend: 'Unknown',
+    employmentRate: 'Unknown',
+    deprivationDecile: imd?.decile ?? null,
+    deprivationScore: imd?.score ?? null,
+    avgRentalYield: 'See market comparables tool',
+    avgRent: 'See market comparables tool',
+    demandRating: 'Unknown',
+  };
+
+  if (onsRental?.indexValue != null) {
+    ctx.ukRentalIndex = {
+      value: onsRental.indexValue,
+      time: onsRental.time,
+      area: onsRental.area || 'United Kingdom',
+      sourceUrl: onsRental.sourceUrl,
+    };
+  }
+
+  if (imd?.decile != null) {
+    ctx.deprivationContext =
+      imd.decile <= 2
+        ? 'Most deprived 20% nationally'
+        : imd.decile <= 4
+        ? 'Below median deprivation'
+        : imd.decile <= 6
+        ? 'Around national median'
+        : imd.decile <= 8
+        ? 'Above median (less deprived)'
+        : 'Least deprived 20% nationally';
+  }
+
+  return ctx;
 }
 
 export function buildCompanyFallbackReport({ companyInput, rawData }) {

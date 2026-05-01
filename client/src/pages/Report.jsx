@@ -7,6 +7,7 @@ import AISummary from '../components/AISummary.jsx';
 import RecommendedSteps from '../components/RecommendedSteps.jsx';
 import ActionButtons from '../components/ActionButtons.jsx';
 import ChatPanel from '../components/ChatPanel.jsx';
+import MarketComparables from '../components/MarketComparables.jsx';
 
 export default function Report({
   mode,
@@ -67,6 +68,8 @@ export default function Report({
           ) : (
             <CompanyCards report={report} />
           )}
+
+          {reportType === 'property' && <MarketComparables report={report} />}
 
           <FlagsList flags={report.flags} />
 
