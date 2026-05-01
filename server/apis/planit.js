@@ -16,10 +16,13 @@ export async function fetchPlanningApplications({ postcode, latitude, longitude,
   url.searchParams.set('pg_sz', String(limit));
   url.searchParams.set('sort', '-start_date');
   if (postcode) {
-    url.searchParams.set('postcode', postcode);
+    // PlanIt API uses 'pcode' (NOT 'postcode') and 'krad' for radius
+    url.searchParams.set('pcode', postcode);
+    url.searchParams.set('krad', '1.0');
   } else {
-    // PlanIt accepts a "near" parameter as "lat,lng,radius_km"
-    url.searchParams.set('near', `${latitude},${longitude},0.5`);
+    url.searchParams.set('lat', String(latitude));
+    url.searchParams.set('lng', String(longitude));
+    url.searchParams.set('krad', '0.5');
   }
 
   const res = await fetch(url, { headers: { Accept: 'application/json' } });

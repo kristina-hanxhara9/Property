@@ -1,157 +1,143 @@
-// EPC integration — supports multiple auth styles to handle the new
-// MHCLG service whose exact format I don't have the spec for yet.
+// EPC integration — MHCLG "Energy Certificate Data API"
 //
-// New service base: https://api.epb.digital.communities.gov.uk/api
-//   Search:  GET /assessments/domestic-epcs/search?postcode=...
-//   Detail:  GET /assessments/{epcRrn}/certificate-summary
+//   Base URL:    https://api.get-energy-performance-data.communities.gov.uk
+//   Auth:        Authorization: Bearer <token>  (from your account page)
+//   Rate limit:  6000 req / 5 min per application — back off on 429.
 //
-// We attempt three auth styles in order and use the first one that returns
-// a non-401/403:
-//   1. Authorization: Bearer <token>
-//   2. X-Api-Key: <token>
-//   3. Authorization: <token>  (no scheme prefix)
+// Endpoints (per official docs):
+//   GET /api/certificate?postcode=...      → search by postcode
+//   GET /api/certificate?certificate_number=... → fetch one cert by RRN
 //
 // Legacy fallback: if EPC_BEARER_TOKEN isn't set but EPC_EMAIL + EPC_API_KEY
 // are, use the old Basic-auth flow against epc.opendatacommunities.org.
 
-const NEW_BASE = 'https://api.epb.digital.communities.gov.uk/api';
+const NEW_BASE = 'https://api.get-energy-performance-data.communities.gov.uk';
 const LEGACY_BASE = 'https://epc.opendatacommunities.org/api/v1/domestic/search';
 
-function buildAuthVariants({ bearerToken, email, apiKey }) {
-  if (bearerToken) {
-    return [
-      { name: 'Bearer', headers: { Authorization: `Bearer ${bearerToken}` } },
-      { name: 'X-Api-Key', headers: { 'X-Api-Key': bearerToken } },
-      { name: 'plain', headers: { Authorization: bearerToken } },
-    ];
-  }
-  if (email && apiKey) {
-    const encoded = Buffer.from(`${email}:${apiKey}`).toString('base64');
-    return [{ name: 'Basic legacy', headers: { Authorization: `Basic ${encoded}` } }];
-  }
-  return [];
+function buildBearerAuth(token) {
+  return { Authorization: `Bearer ${token}` };
+}
+
+function buildBasicAuth(email, apiKey) {
+  const encoded = Buffer.from(`${email}:${apiKey}`).toString('base64');
+  return { Authorization: `Basic ${encoded}` };
 }
 
 export async function fetchEpcByPostcode(
   { postcode, addressFragment },
   { bearerToken, email, apiKey, baseUrl } = {},
 ) {
-  const variants = buildAuthVariants({ bearerToken, email, apiKey });
-  if (variants.length === 0) {
-    return {
-      configured: false,
-      results: [],
-      note:
-        'EPC API not configured. Set EPC_BEARER_TOKEN (preferred — new MHCLG service) or legacy EPC_EMAIL + EPC_API_KEY on the backend.',
-    };
-  }
-
   if (bearerToken) {
-    return await tryNewServiceWithFallback({
+    return await fetchViaNewService({
       postcode,
       addressFragment,
-      variants,
+      auth: buildBearerAuth(bearerToken),
       baseUrl: baseUrl || NEW_BASE,
     });
   }
-  return await fetchViaLegacyService({
-    postcode,
-    addressFragment,
-    auth: variants[0].headers,
-    baseUrl: baseUrl || LEGACY_BASE,
-  });
+  if (email && apiKey) {
+    return await fetchViaLegacyService({
+      postcode,
+      addressFragment,
+      auth: buildBasicAuth(email, apiKey),
+      baseUrl: baseUrl || LEGACY_BASE,
+    });
+  }
+  return {
+    configured: false,
+    results: [],
+    note:
+      'EPC API not configured. Set EPC_BEARER_TOKEN (preferred — new MHCLG service) or legacy EPC_EMAIL + EPC_API_KEY on the backend.',
+  };
 }
 
-async function tryNewServiceWithFallback({ postcode, addressFragment, variants, baseUrl }) {
-  const searchPath = `${baseUrl}/assessments/domestic-epcs/search`;
-  const attempts = [];
+async function fetchViaNewService({ postcode, addressFragment, auth, baseUrl }) {
+  const url = new URL(`${baseUrl}/api/certificate`);
+  url.searchParams.set('postcode', postcode);
 
-  for (const variant of variants) {
-    const url = new URL(searchPath);
-    url.searchParams.set('postcode', postcode);
-    if (addressFragment) {
-      url.searchParams.set('buildingNameOrNumber', extractBuildingPart(addressFragment));
-    }
+  const res = await fetch(url, { headers: { ...auth, Accept: 'application/json' } });
 
+  if (res.status === 401 || res.status === 403) {
     let body = '';
-    let status = 0;
     try {
-      const res = await fetch(url, { headers: { ...variant.headers, Accept: 'application/json' } });
-      status = res.status;
-      try {
-        body = await res.text();
-      } catch {
-        /* ignore */
-      }
-
-      if (res.ok) {
-        const parsed = body ? JSON.parse(body) : {};
-        const assessments = parsed?.data?.assessments || [];
-        const bestRrn = pickBestRrn(assessments, addressFragment);
-
-        let summary = null;
-        if (bestRrn) {
-          try {
-            summary = await fetchCertificateSummary(baseUrl, bestRrn, variant.headers);
-          } catch (err) {
-            summary = { _summaryError: err.message };
-          }
-        }
-
-        return {
-          configured: true,
-          authStyle: `new-${variant.name}`,
-          count: assessments.length,
-          results: assessments.map((a) => ({
-            epcRrn: a.epcRrn,
-            address: joinNewAddress(a.address),
-            ...(a.epcRrn === bestRrn && summary && !summary._summaryError
-              ? extractRatingsFromSummary(summary)
-              : {}),
-          })),
-          summaryError: summary?._summaryError || null,
-          attempts: [...attempts, { variant: variant.name, status, ok: true }],
-        };
-      }
-
-      attempts.push({
-        variant: variant.name,
-        status,
-        body: body.slice(0, 180).replace(/\s+/g, ' ').trim(),
-      });
-    } catch (err) {
-      attempts.push({ variant: variant.name, error: err.message });
+      body = await res.text();
+    } catch {
+      /* ignore */
     }
+    throw new Error(
+      `EPC API ${res.status} (Bearer auth, ${url.host}): ${body.slice(0, 200).replace(/\s+/g, ' ').trim() || 'Not authorized'}`,
+    );
+  }
+  if (res.status === 429) {
+    throw new Error(`EPC API rate-limited (429). Back off and retry shortly.`);
+  }
+  if (!res.ok) {
+    let body = '';
+    try {
+      body = await res.text();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(
+      `EPC API ${res.status} from ${url.host}: ${body.slice(0, 200).replace(/\s+/g, ' ').trim()}`,
+    );
   }
 
-  // All variants failed — surface them all so the user can see what each said.
-  const summary = attempts
-    .map((a) => `${a.variant}: ${a.status || 'err'}${a.body ? ' ' + a.body : a.error ? ' ' + a.error : ''}`)
-    .join(' | ');
-  throw new Error(`EPC API rejected all auth styles. Attempts: ${summary}`);
-}
+  const body = await res.json();
+  // The API may return either {data: [...]}, {certificates: [...]}, or just an array.
+  const records = Array.isArray(body)
+    ? body
+    : body?.data || body?.certificates || body?.rows || body?.results || [];
 
-async function fetchCertificateSummary(base, rrn, authHeaders) {
-  const url = `${base}/assessments/${encodeURIComponent(rrn)}/certificate-summary`;
-  const res = await fetch(url, { headers: { ...authHeaders, Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`certificate-summary returned ${res.status}`);
-  return await res.json();
-}
-
-function extractRatingsFromSummary(body) {
-  const d = body?.data || body;
   return {
-    currentRating: d?.currentEnergyRating || d?.current_energy_rating || d?.energyRating || null,
+    configured: true,
+    authStyle: 'bearer-new',
+    count: records.length,
+    results: records.map((r) => normaliseNewRecord(r)),
+  };
+}
+
+function normaliseNewRecord(r) {
+  const addr =
+    r.address ||
+    [r.address1, r.address2, r.address3, r.posttown, r.postcode]
+      .filter(Boolean)
+      .join(', ') ||
+    null;
+
+  return {
+    epcRrn: r.certificate_number || r.certificateNumber || r.rrn || r['lmk-key'] || null,
+    address: addr,
+    lodgementDate:
+      r.lodgement_date || r.lodgementDate || r['lodgement-date'] || r.created_at || null,
+    currentRating:
+      r.current_energy_rating ||
+      r.currentEnergyRating ||
+      r['current-energy-rating'] ||
+      r.energy_rating ||
+      null,
     currentScore: numberOrNull(
-      d?.currentEnergyEfficiency || d?.current_energy_efficiency || d?.energyEfficiency,
+      r.current_energy_efficiency ||
+        r.currentEnergyEfficiency ||
+        r['current-energy-efficiency'],
     ),
-    potentialRating: d?.potentialEnergyRating || d?.potential_energy_rating || null,
-    potentialScore: numberOrNull(d?.potentialEnergyEfficiency || d?.potential_energy_efficiency),
-    lodgementDate: d?.lodgementDate || d?.lodgement_date || null,
-    propertyType: d?.propertyType || d?.property_type || null,
-    builtForm: d?.builtForm || d?.built_form || null,
-    totalFloorArea: numberOrNull(d?.totalFloorArea || d?.total_floor_area),
-    mainHeating: d?.mainHeatDescription || d?.main_heat_description || d?.mainHeating || null,
+    potentialRating:
+      r.potential_energy_rating ||
+      r.potentialEnergyRating ||
+      r['potential-energy-rating'] ||
+      null,
+    potentialScore: numberOrNull(
+      r.potential_energy_efficiency ||
+        r.potentialEnergyEfficiency ||
+        r['potential-energy-efficiency'],
+    ),
+    propertyType: r.property_type || r.propertyType || r['property-type'] || null,
+    builtForm: r.built_form || r.builtForm || r['built-form'] || null,
+    tenure: r.tenure || null,
+    totalFloorArea: numberOrNull(
+      r.total_floor_area || r.totalFloorArea || r['total-floor-area'],
+    ),
+    mainHeating: r.mainheat_description || r.main_heat_description || r['mainheat-description'] || null,
   };
 }
 
@@ -182,41 +168,8 @@ async function fetchViaLegacyService({ postcode, addressFragment, auth, baseUrl 
     configured: true,
     authStyle: 'basic-legacy',
     count: rows.length,
-    results: rows.map((r) => ({
-      address: r.address || joinLegacyAddress(r),
-      lodgementDate: r['lodgement-date'] || r.lodgement_date || null,
-      currentRating: r['current-energy-rating'] || r.current_energy_rating || null,
-      currentScore: numberOrNull(r['current-energy-efficiency'] || r.current_energy_efficiency),
-      potentialRating: r['potential-energy-rating'] || r.potential_energy_rating || null,
-      potentialScore: numberOrNull(
-        r['potential-energy-efficiency'] || r.potential_energy_efficiency,
-      ),
-      propertyType: r['property-type'] || r.property_type || null,
-      builtForm: r['built-form'] || r.built_form || null,
-      tenure: r.tenure || null,
-      totalFloorArea: numberOrNull(r['total-floor-area'] || r.total_floor_area),
-      mainHeating: r['mainheat-description'] || null,
-      lmkKey: r['lmk-key'] || null,
-    })),
+    results: rows.map((r) => normaliseNewRecord(r)),
   };
-}
-
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-function joinNewAddress(addr) {
-  if (!addr) return null;
-  return [addr.addressLine1, addr.addressLine2, addr.addressLine3, addr.addressLine4, addr.town, addr.postcode]
-    .filter(Boolean)
-    .join(', ');
-}
-
-function joinLegacyAddress(r) {
-  return [r.address1, r.address2, r.address3, r.posttown, r.postcode].filter(Boolean).join(', ');
-}
-
-function extractBuildingPart(addressFragment) {
-  const m = String(addressFragment).match(/^(\d+\w?|[A-Z][\w'-]+)/);
-  return m ? m[1] : '';
 }
 
 function numberOrNull(v) {
@@ -237,19 +190,6 @@ export function pickBestEpc(epcResult, addressHint) {
   }));
   ranked.sort((a, b) => b.score - a.score);
   return ranked[0].r;
-}
-
-function pickBestRrn(assessments, addressFragment) {
-  if (!assessments || assessments.length === 0) return null;
-  if (assessments.length === 1) return assessments[0].epcRrn;
-  if (!addressFragment) return assessments[0].epcRrn;
-  const hint = String(addressFragment).toUpperCase();
-  const ranked = [...assessments].map((a) => ({
-    a,
-    score: scoreMatch(joinNewAddress(a.address)?.toUpperCase() || '', hint),
-  }));
-  ranked.sort((x, y) => y.score - x.score);
-  return ranked[0].a.epcRrn;
 }
 
 function scoreMatch(a, b) {

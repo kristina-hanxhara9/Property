@@ -15,21 +15,21 @@ export function buildRadonLink(postcode) {
 
 export function buildGroundStabilityLink(postcode) {
   return {
-    name: 'British Geological Survey — GeoIndex',
+    name: 'British Geological Survey — GeoIndex Map',
     agency: 'British Geological Survey (BGS)',
-    url: 'https://mapapps2.bgs.ac.uk/geoindex/home.html',
+    url: 'https://www.bgs.ac.uk/map-viewers/geoindex-onshore/',
     note:
-      'Official BGS hazard map. Activate the "Ground stability", "Soluble rocks" and "Shrink/swell" layers, then search the postcode.',
+      'Official BGS hazard map viewer. Activate the "Ground stability", "Soluble rocks" and "Shrink/swell" layers, then search the postcode.',
   };
 }
 
 export function buildMiningLink(postcode) {
   return {
-    name: 'The Coal Authority — Interactive Map Viewer',
-    agency: 'The Coal Authority',
-    url: 'https://mapapps2.bgs.ac.uk/coalauthority/home.html',
+    name: 'GOV.UK — Check coal mining reports',
+    agency: 'Mining Remediation Authority (formerly Coal Authority)',
+    url: 'https://www.gov.uk/check-coal-mining-reports',
     note:
-      'Official Coal Authority map. Confirms whether the property sits in a coalfield reporting area. A full Coal Mining Report (£30) is recommended for any property within one.',
+      'Official GOV.UK coal mining check. Order a free interactive map check or a paid Coal Mining Report (~£30) — recommended for any property in a former coalfield area.',
   };
 }
 
