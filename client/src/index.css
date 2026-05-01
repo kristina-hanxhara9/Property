@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #f8fafc;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer components {
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium;
+  }
+  .pill-ok {
+    @apply pill bg-ok-bg text-ok-text;
+  }
+  .pill-warn {
+    @apply pill bg-warn-bg text-warn-text;
+  }
+  .pill-crit {
+    @apply pill bg-crit-bg text-crit-text;
+  }
+  .pill-info {
+    @apply pill bg-info-bg text-info-text;
+  }
+  .pill-neutral {
+    @apply pill bg-slate-100 text-slate-700;
+  }
+  .card {
+    @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm;
+  }
+  .card-title {
+    @apply font-display text-sm font-bold uppercase tracking-wider text-slate-500;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition;
+  }
+  .btn-primary {
+    @apply btn bg-ink text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400;
+  }
+  .btn-ghost {
+    @apply btn bg-white text-ink ring-1 ring-slate-200 hover:bg-slate-50;
+  }
+  .btn-soft {
+    @apply btn bg-slate-100 text-slate-800 hover:bg-slate-200;
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #f1f5f9 0px, #e2e8f0 200px, #f1f5f9 400px);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+.tick-pulse {
+  animation: tickPulse 1.5s ease-in-out infinite;
+}
+@keyframes tickPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
