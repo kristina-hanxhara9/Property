@@ -215,6 +215,61 @@ function PlanningCard({ report }) {
       {p.planningNotes && (
         <p className="border-t border-slate-100 pt-3 text-sm text-slate-600">{p.planningNotes}</p>
       )}
+      {report.planningApplications && report.planningApplications.length > 0 && (
+        <div className="space-y-1.5 border-t border-cream-200 pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
+            Recent planning applications nearby ({report.planningApplications.length}
+            {report.planningApplicationsTotal > report.planningApplications.length
+              ? ` of ${report.planningApplicationsTotal}`
+              : ''})
+          </p>
+          <ul className="space-y-1.5">
+            {report.planningApplications.slice(0, 8).map((a, i) => (
+              <li key={i} className="rounded-lg bg-cream-50 p-2 text-xs">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-semibold text-ink">{a.reference || 'No ref'}</span>
+                  <span className="text-slate-500">
+                    {a.receivedDate ? new Date(a.receivedDate).toLocaleDateString('en-GB') : '—'}
+                  </span>
+                </div>
+                {a.address && <p className="text-slate-700">{a.address}</p>}
+                {a.description && <p className="mt-0.5 text-slate-600">{a.description}</p>}
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  {a.status && (
+                    <span
+                      className={
+                        /approv|granted|permit/i.test(a.status)
+                          ? 'pill-ok'
+                          : /refus|reject|withdraw/i.test(a.status)
+                          ? 'pill-crit'
+                          : /pending|consult|valid/i.test(a.status)
+                          ? 'pill-warn'
+                          : 'pill-neutral'
+                      }
+                    >
+                      {a.status}
+                    </span>
+                  )}
+                  {a.authority && (
+                    <span className="text-slate-500">{a.authority}</span>
+                  )}
+                  {a.url && (
+                    <a
+                      href={a.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-auto font-semibold text-claude-700 hover:underline"
+                    >
+                      View ↗
+                    </a>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="space-y-1.5 border-t border-cream-200 pt-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
           Planning portals

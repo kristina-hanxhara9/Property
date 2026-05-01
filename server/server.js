@@ -10,6 +10,7 @@ import { fetchPlanningConstraints } from './apis/planningData.js';
 import { fetchFloodRisk } from './apis/floodRisk.js';
 import { searchCompanies, fetchCompanyBundle } from './apis/companiesHouse.js';
 import { fetchEpcByPostcode, pickBestEpc } from './apis/epc.js';
+import { fetchPlanningApplications } from './apis/planit.js';
 import {
   fetchImdDecile,
   fetchOnsRentalGrowth,
@@ -229,14 +230,21 @@ app.post('/api/property-check', async (req, res) => {
     'ONS Index of Private Housing Rental Prices (free)',
     () => fetchOnsRentalGrowth(),
   );
+  const planitPromise = runStep(
+    res,
+    'planit',
+    'PlanIt UK — recent planning applications (free)',
+    () => fetchPlanningApplications({ postcode: postcodeStr, latitude, longitude, limit: 12 }),
+  );
 
-  const [pricePaid, planning, flood, epc, imd, onsRental] = await Promise.all([
+  const [pricePaid, planning, flood, epc, imd, onsRental, planit] = await Promise.all([
     pricePaidPromise,
     planningPromise,
     floodPromise,
     epcPromise,
     imdPromise,
     onsRentalPromise,
+    planitPromise,
   ]);
   if (!pricePaid.ok) apisFailed.push('land-registry-price-paid');
   if (!planning.ok) apisFailed.push('planning-data-gov-uk');
@@ -244,6 +252,7 @@ app.post('/api/property-check', async (req, res) => {
   if (!epc.ok) apisFailed.push('epc-register');
   if (!imd.ok) apisFailed.push('ons-imd');
   if (!onsRental.ok) apisFailed.push('ons-rental');
+  if (!planit.ok) apisFailed.push('planit');
 
   apiResults.pricePaid = pricePaid.value || null;
   apiResults.priceSummary = pricePaid.value
@@ -255,6 +264,7 @@ app.post('/api/property-check', async (req, res) => {
   apiResults.epcMatch = epc.value ? pickBestEpc(epc.value, address) : null;
   apiResults.imd = imd.value || null;
   apiResults.onsRental = onsRental.value || null;
+  apiResults.planit = planit.value || null;
   const lpaEntity = (planning.value?.constraints?.['local-planning-authority'] || [])[0] || null;
   const lpaPlanningLink = buildLpaPlanningLink({
     lpaName: lpaEntity?.name || null,
@@ -276,7 +286,7 @@ app.post('/api/property-check', async (req, res) => {
 
   sseSend(res, 'partial-data', { partial: apiResults });
 
-  const apisQueried = 7;
+  const apisQueried = 8;
   const apisSuccessful = apisQueried - apisFailed.length;
 
   const rawDataForReport = {

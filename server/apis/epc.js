@@ -1,39 +1,43 @@
-// EPC integration.
+// EPC integration — supports multiple auth styles to handle the new
+// MHCLG service whose exact format I don't have the spec for yet.
 //
-// The MHCLG service that issues bearer tokens lives at:
-//   https://api.epb.digital.communities.gov.uk/api
-// (NEW — replaces epc.opendatacommunities.org which retires 30 May 2026)
+// New service base: https://api.epb.digital.communities.gov.uk/api
+//   Search:  GET /assessments/domestic-epcs/search?postcode=...
+//   Detail:  GET /assessments/{epcRrn}/certificate-summary
 //
-// Flow:
-//   1. GET /assessments/domestic-epcs/search?postcode=...&buildingNameOrNumber=...
-//      → returns { data: { assessments: [{ epcRrn, address }, ...] } }
-//   2. GET /assessments/{epcRrn}/certificate-summary
-//      → returns full ratings, lodgement date, recommendations
+// We attempt three auth styles in order and use the first one that returns
+// a non-401/403:
+//   1. Authorization: Bearer <token>
+//   2. X-Api-Key: <token>
+//   3. Authorization: <token>  (no scheme prefix)
 //
-// Auth: Authorization: Bearer <token>
-//
-// Legacy fallback: if a bearer token is NOT set but EPC_EMAIL + EPC_API_KEY
-// are, fall back to the old opendatacommunities Basic-auth flow (same
-// hostname, single-step search returns ratings inline).
+// Legacy fallback: if EPC_BEARER_TOKEN isn't set but EPC_EMAIL + EPC_API_KEY
+// are, use the old Basic-auth flow against epc.opendatacommunities.org.
 
 const NEW_BASE = 'https://api.epb.digital.communities.gov.uk/api';
 const LEGACY_BASE = 'https://epc.opendatacommunities.org/api/v1/domestic/search';
 
-function buildAuthHeader({ bearerToken, email, apiKey }) {
-  if (bearerToken) return { Authorization: `Bearer ${bearerToken}` };
+function buildAuthVariants({ bearerToken, email, apiKey }) {
+  if (bearerToken) {
+    return [
+      { name: 'Bearer', headers: { Authorization: `Bearer ${bearerToken}` } },
+      { name: 'X-Api-Key', headers: { 'X-Api-Key': bearerToken } },
+      { name: 'plain', headers: { Authorization: bearerToken } },
+    ];
+  }
   if (email && apiKey) {
     const encoded = Buffer.from(`${email}:${apiKey}`).toString('base64');
-    return { Authorization: `Basic ${encoded}` };
+    return [{ name: 'Basic legacy', headers: { Authorization: `Basic ${encoded}` } }];
   }
-  return null;
+  return [];
 }
 
 export async function fetchEpcByPostcode(
   { postcode, addressFragment },
   { bearerToken, email, apiKey, baseUrl } = {},
 ) {
-  const auth = buildAuthHeader({ bearerToken, email, apiKey });
-  if (!auth) {
+  const variants = buildAuthVariants({ bearerToken, email, apiKey });
+  if (variants.length === 0) {
     return {
       configured: false,
       results: [],
@@ -43,95 +47,106 @@ export async function fetchEpcByPostcode(
   }
 
   if (bearerToken) {
-    return await fetchViaNewService({ postcode, addressFragment, auth, baseUrl });
+    return await tryNewServiceWithFallback({
+      postcode,
+      addressFragment,
+      variants,
+      baseUrl: baseUrl || NEW_BASE,
+    });
   }
-  return await fetchViaLegacyService({ postcode, addressFragment, auth, baseUrl });
-}
-
-async function fetchViaNewService({ postcode, addressFragment, auth, baseUrl }) {
-  const base = baseUrl || NEW_BASE;
-
-  // 1. Search by postcode
-  const searchUrl = new URL(`${base}/assessments/domestic-epcs/search`);
-  searchUrl.searchParams.set('postcode', postcode);
-  if (addressFragment) {
-    searchUrl.searchParams.set('buildingNameOrNumber', extractBuildingPart(addressFragment));
-  }
-
-  const searchRes = await fetch(searchUrl, {
-    headers: { ...auth, Accept: 'application/json' },
+  return await fetchViaLegacyService({
+    postcode,
+    addressFragment,
+    auth: variants[0].headers,
+    baseUrl: baseUrl || LEGACY_BASE,
   });
-
-  if (searchRes.status === 401 || searchRes.status === 403) {
-    let body = '';
-    try {
-      body = await searchRes.text();
-    } catch {
-      /* ignore */
-    }
-    throw new Error(
-      `EPC API ${searchRes.status} (Bearer auth, ${searchUrl.host}): ${body.slice(0, 180).replace(/\s+/g, ' ').trim() || 'Not authorized'}`,
-    );
-  }
-  if (!searchRes.ok) {
-    throw new Error(`EPC search returned ${searchRes.status} from ${searchUrl.host}`);
-  }
-
-  const searchBody = await searchRes.json();
-  const assessments = searchBody?.data?.assessments || [];
-
-  // 2. Pick best match by address, then fetch certificate-summary
-  const bestRrn = pickBestRrn(assessments, addressFragment);
-  let summary = null;
-  if (bestRrn) {
-    try {
-      summary = await fetchCertificateSummary(base, bestRrn, auth);
-    } catch (err) {
-      // search worked but summary failed (different scope?) — keep going with search-only data
-      summary = { _summaryError: err.message };
-    }
-  }
-
-  return {
-    configured: true,
-    authStyle: 'bearer-new',
-    count: assessments.length,
-    results: assessments.map((a) => ({
-      epcRrn: a.epcRrn,
-      address: joinNewAddress(a.address),
-      // Ratings only present if this RRN matched and we fetched the summary
-      ...(a.epcRrn === bestRrn && summary && !summary._summaryError
-        ? extractRatingsFromSummary(summary)
-        : {}),
-    })),
-    summaryError: summary?._summaryError || null,
-  };
 }
 
-async function fetchCertificateSummary(base, rrn, auth) {
-  const url = `${base}/assessments/${encodeURIComponent(rrn)}/certificate-summary`;
-  const res = await fetch(url, { headers: { ...auth, Accept: 'application/json' } });
-  if (!res.ok) {
-    throw new Error(`certificate-summary returned ${res.status}`);
+async function tryNewServiceWithFallback({ postcode, addressFragment, variants, baseUrl }) {
+  const searchPath = `${baseUrl}/assessments/domestic-epcs/search`;
+  const attempts = [];
+
+  for (const variant of variants) {
+    const url = new URL(searchPath);
+    url.searchParams.set('postcode', postcode);
+    if (addressFragment) {
+      url.searchParams.set('buildingNameOrNumber', extractBuildingPart(addressFragment));
+    }
+
+    let body = '';
+    let status = 0;
+    try {
+      const res = await fetch(url, { headers: { ...variant.headers, Accept: 'application/json' } });
+      status = res.status;
+      try {
+        body = await res.text();
+      } catch {
+        /* ignore */
+      }
+
+      if (res.ok) {
+        const parsed = body ? JSON.parse(body) : {};
+        const assessments = parsed?.data?.assessments || [];
+        const bestRrn = pickBestRrn(assessments, addressFragment);
+
+        let summary = null;
+        if (bestRrn) {
+          try {
+            summary = await fetchCertificateSummary(baseUrl, bestRrn, variant.headers);
+          } catch (err) {
+            summary = { _summaryError: err.message };
+          }
+        }
+
+        return {
+          configured: true,
+          authStyle: `new-${variant.name}`,
+          count: assessments.length,
+          results: assessments.map((a) => ({
+            epcRrn: a.epcRrn,
+            address: joinNewAddress(a.address),
+            ...(a.epcRrn === bestRrn && summary && !summary._summaryError
+              ? extractRatingsFromSummary(summary)
+              : {}),
+          })),
+          summaryError: summary?._summaryError || null,
+          attempts: [...attempts, { variant: variant.name, status, ok: true }],
+        };
+      }
+
+      attempts.push({
+        variant: variant.name,
+        status,
+        body: body.slice(0, 180).replace(/\s+/g, ' ').trim(),
+      });
+    } catch (err) {
+      attempts.push({ variant: variant.name, error: err.message });
+    }
   }
+
+  // All variants failed — surface them all so the user can see what each said.
+  const summary = attempts
+    .map((a) => `${a.variant}: ${a.status || 'err'}${a.body ? ' ' + a.body : a.error ? ' ' + a.error : ''}`)
+    .join(' | ');
+  throw new Error(`EPC API rejected all auth styles. Attempts: ${summary}`);
+}
+
+async function fetchCertificateSummary(base, rrn, authHeaders) {
+  const url = `${base}/assessments/${encodeURIComponent(rrn)}/certificate-summary`;
+  const res = await fetch(url, { headers: { ...authHeaders, Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`certificate-summary returned ${res.status}`);
   return await res.json();
 }
 
 function extractRatingsFromSummary(body) {
-  // The summary response is a discriminated union; field names live in nested
-  // `data` objects. Try several plausible paths so we tolerate schema drift.
   const d = body?.data || body;
   return {
-    currentRating:
-      d?.currentEnergyRating || d?.current_energy_rating || d?.energyRating || null,
+    currentRating: d?.currentEnergyRating || d?.current_energy_rating || d?.energyRating || null,
     currentScore: numberOrNull(
       d?.currentEnergyEfficiency || d?.current_energy_efficiency || d?.energyEfficiency,
     ),
-    potentialRating:
-      d?.potentialEnergyRating || d?.potential_energy_rating || null,
-    potentialScore: numberOrNull(
-      d?.potentialEnergyEfficiency || d?.potential_energy_efficiency,
-    ),
+    potentialRating: d?.potentialEnergyRating || d?.potential_energy_rating || null,
+    potentialScore: numberOrNull(d?.potentialEnergyEfficiency || d?.potential_energy_efficiency),
     lodgementDate: d?.lodgementDate || d?.lodgement_date || null,
     propertyType: d?.propertyType || d?.property_type || null,
     builtForm: d?.builtForm || d?.built_form || null,
@@ -141,7 +156,7 @@ function extractRatingsFromSummary(body) {
 }
 
 async function fetchViaLegacyService({ postcode, addressFragment, auth, baseUrl }) {
-  const url = new URL(baseUrl || LEGACY_BASE);
+  const url = new URL(baseUrl);
   url.searchParams.set('postcode', postcode);
   url.searchParams.set('size', '20');
   if (addressFragment) url.searchParams.set('address', addressFragment);
@@ -156,7 +171,7 @@ async function fetchViaLegacyService({ postcode, addressFragment, auth, baseUrl 
       /* ignore */
     }
     throw new Error(
-      `EPC API ${res.status} (Basic auth, ${url.host}): ${body.slice(0, 180).replace(/\s+/g, ' ').trim() || 'Not authorized'}`,
+      `EPC API ${res.status} (Basic legacy, ${url.host}): ${body.slice(0, 180).replace(/\s+/g, ' ').trim() || 'Not authorized'}`,
     );
   }
   if (!res.ok) throw new Error(`EPC API returned ${res.status} from ${url.host}`);
@@ -196,13 +211,10 @@ function joinNewAddress(addr) {
 }
 
 function joinLegacyAddress(r) {
-  return [r.address1, r.address2, r.address3, r.posttown, r.postcode]
-    .filter(Boolean)
-    .join(', ');
+  return [r.address1, r.address2, r.address3, r.posttown, r.postcode].filter(Boolean).join(', ');
 }
 
 function extractBuildingPart(addressFragment) {
-  // Pull the leading number/name token from "10 Downing Street, ..." → "10"
   const m = String(addressFragment).match(/^(\d+\w?|[A-Z][\w'-]+)/);
   return m ? m[1] : '';
 }

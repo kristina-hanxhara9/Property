@@ -340,6 +340,8 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
     planningHistoryLink: rawData?.environmentalLinks?.planningHistory || null,
     planningHistorySupplementary:
       rawData?.environmentalLinks?.planningHistorySupplementary || null,
+    planningApplications: rawData?.planit?.applications || [],
+    planningApplicationsTotal: rawData?.planit?.total || 0,
     onsAreaProfile: rawData?.environmentalLinks?.onsAreaProfile || null,
 
     flags,
