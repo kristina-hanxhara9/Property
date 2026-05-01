@@ -20,6 +20,8 @@ import {
   buildGroundStabilityLink,
   buildMiningLink,
   buildPlanItLink,
+  buildLpaPlanningLink,
+  buildOnsAreaProfileLink,
 } from './apis/environmentalLinks.js';
 import {
   buildPropertyFallbackReport,
@@ -233,11 +235,23 @@ app.post('/api/property-check', async (req, res) => {
   apiResults.epcMatch = epc.value ? pickBestEpc(epc.value, address) : null;
   apiResults.imd = imd.value || null;
   apiResults.onsRental = onsRental.value || null;
+  const lpaEntity = (planning.value?.constraints?.['local-planning-authority'] || [])[0] || null;
+  const lpaPlanningLink = buildLpaPlanningLink({
+    lpaName: lpaEntity?.name || null,
+    lpaWebsite: lpaEntity?.website || null,
+    postcode: postcodeStr,
+  });
+  const onsAreaLink = buildOnsAreaProfileLink({
+    adminDistrictCode: geo.value?.codes?.admin_district || null,
+    adminDistrictName: geo.value?.adminDistrict || null,
+  });
   apiResults.environmentalLinks = {
     radon: buildRadonLink(postcodeStr),
     groundStability: buildGroundStabilityLink(postcodeStr),
     mining: buildMiningLink(postcodeStr),
-    planningHistory: buildPlanItLink(postcodeStr),
+    planningHistory: lpaPlanningLink,
+    planningHistorySupplementary: buildPlanItLink(postcodeStr),
+    onsAreaProfile: onsAreaLink,
   };
 
   sseSend(res, 'partial-data', { partial: apiResults });

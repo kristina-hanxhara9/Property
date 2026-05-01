@@ -78,15 +78,37 @@ function OwnershipCard({ report }) {
 
 function LegalCard({ report }) {
   const t = report.titleData || {};
+  const titleNotEnabled = !t.titleNumber && (!t.dataSource || /not enabled/i.test(t.dataSource));
+
   return (
-    <CardShell title="Legal & encumbrances" source="Source: Land Registry">
-      <BulletList label="Mortgages / charges" items={t.mortgages} empty="None recorded" />
-      <BulletList
-        label="Restrictive covenants"
-        items={t.restrictiveCovenants}
-        empty="None recorded"
-      />
-      <BulletList label="Easements" items={t.easements} empty="None recorded" />
+    <CardShell title="Legal & encumbrances" source="Source: Land Registry Title Register">
+      {titleNotEnabled && (
+        <div className="rounded-xl border border-cream-200 bg-cream-50 p-3 text-xs text-ink/70">
+          <strong className="text-claude-700">Data unavailable.</strong> Mortgages, restrictive
+          covenants and easements live on the official Land Registry Title Register, which is a
+          paid lookup (£7 per title) not enabled in this MVP. We can't say "none" — we just don't
+          know yet.
+          <a
+            href="https://eservices.landregistry.gov.uk/eservices/FindAProperty/view/QuickEnquiryInit.do"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 block font-semibold text-claude-700 hover:underline"
+          >
+            Order a Title Register from HM Land Registry ↗
+          </a>
+        </div>
+      )}
+      {!titleNotEnabled && (
+        <>
+          <BulletList label="Mortgages / charges" items={t.mortgages} empty="None recorded" />
+          <BulletList
+            label="Restrictive covenants"
+            items={t.restrictiveCovenants}
+            empty="None recorded"
+          />
+          <BulletList label="Easements" items={t.easements} empty="None recorded" />
+        </>
+      )}
     </CardShell>
   );
 }
@@ -112,13 +134,33 @@ function BulletList({ label, items, empty }) {
 }
 
 function PriceHistoryCard({ report }) {
+  // Pick the three most relevant stats. Always show last sale; then prefer
+  // 1yr / 5yr where available; fall back to 10yr / all-time so the card
+  // shows useful info even for properties that traded less frequently.
+  const stats = [
+    { label: 'Last sale', value: formatGBP(report.lastSalePrice), sub: report.lastSaleDate },
+  ];
+  const candidates = [
+    { label: '1yr growth', value: report.priceGrowth1yr },
+    { label: '5yr growth', value: report.priceGrowth5yr },
+    { label: '10yr growth', value: report.priceGrowth10yr },
+    {
+      label: report.yearsCovered ? `${report.yearsCovered}yr total` : 'Total growth',
+      value: report.priceGrowthAllTime,
+    },
+  ].filter((c) => c.value);
+  for (const c of candidates) {
+    if (stats.length < 3) stats.push(c);
+  }
+  while (stats.length < 3) stats.push({ label: '—', value: '—' });
+
   return (
     <CardShell title="Price history" source="Source: HM Land Registry Price Paid Data">
       <PriceChart history={report.priceHistory} />
       <div className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-center">
-        <Stat label="Last sale" value={formatGBP(report.lastSalePrice)} sub={report.lastSaleDate} />
-        <Stat label="1yr growth" value={report.priceGrowth1yr || '—'} />
-        <Stat label="5yr growth" value={report.priceGrowth5yr || '—'} />
+        {stats.map((s, i) => (
+          <Stat key={i} label={s.label} value={s.value} sub={s.sub} />
+        ))}
       </div>
     </CardShell>
   );
@@ -173,17 +215,37 @@ function PlanningCard({ report }) {
       {p.planningNotes && (
         <p className="border-t border-slate-100 pt-3 text-sm text-slate-600">{p.planningNotes}</p>
       )}
-      {report.planningHistoryLink && (
-        <a
-          href={report.planningHistoryLink.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block rounded-lg bg-cream-50 p-3 text-sm hover:bg-cream-100"
-        >
-          <span className="font-semibold text-claude-700">📑 {report.planningHistoryLink.name} ↗</span>
-          <span className="block text-xs text-slate-600">{report.planningHistoryLink.note}</span>
-        </a>
-      )}
+      <div className="space-y-1.5 border-t border-cream-200 pt-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
+          Planning portals
+        </p>
+        {report.planningHistoryLink && (
+          <a
+            href={report.planningHistoryLink.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
+          >
+            <span className="font-semibold text-claude-700">
+              🏛️ {report.planningHistoryLink.name} ↗
+            </span>
+            <span className="block text-slate-600">{report.planningHistoryLink.note}</span>
+          </a>
+        )}
+        {report.planningHistorySupplementary && (
+          <a
+            href={report.planningHistorySupplementary.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
+          >
+            <span className="font-semibold text-claude-700">
+              📑 {report.planningHistorySupplementary.name} ↗
+            </span>
+            <span className="block text-slate-600">{report.planningHistorySupplementary.note}</span>
+          </a>
+        )}
+      </div>
     </CardShell>
   );
 }
@@ -361,16 +423,37 @@ function MarketCard({ report }) {
       <Field label="Avg rental yield" value={m.avgRentalYield} />
       <Field label="Avg rent" value={m.avgRent} />
       <Field label="Demand rating" value={m.demandRating} />
-      {idx?.sourceUrl && (
-        <a
-          href={idx.sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs font-semibold text-claude-700 hover:underline"
-        >
-          ONS Index of Private Housing Rental Prices ↗
-        </a>
-      )}
+      <div className="space-y-1.5 border-t border-cream-200 pt-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
+          Authoritative sources
+        </p>
+        {report.onsAreaProfile && (
+          <a
+            href={report.onsAreaProfile.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
+          >
+            <span className="font-semibold text-claude-700">
+              📊 {report.onsAreaProfile.name} ↗
+            </span>
+            <span className="block text-slate-600">{report.onsAreaProfile.note}</span>
+          </a>
+        )}
+        {idx?.sourceUrl && (
+          <a
+            href={idx.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
+          >
+            <span className="font-semibold text-claude-700">
+              📈 ONS — Index of Private Housing Rental Prices ↗
+            </span>
+            <span className="block text-slate-600">UK headline rental price index, monthly.</span>
+          </a>
+        )}
+      </div>
     </CardShell>
   );
 }

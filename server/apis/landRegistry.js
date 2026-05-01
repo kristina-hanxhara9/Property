@@ -77,12 +77,24 @@ export function summarisePriceHistory(transactions) {
   const yearsBetween = (a, b) =>
     Math.abs(new Date(a) - new Date(b)) / (1000 * 60 * 60 * 24 * 365.25);
 
-  const findCloseTo = (yearsAgo) => {
+  const growth = (from, to) => {
+    if (!from || !to || !from.pricePaid || !to.pricePaid) return null;
+    const pct = ((to.pricePaid - from.pricePaid) / from.pricePaid) * 100;
+    return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+  };
+
+  // Find the transaction (excluding the latest itself) closest to N years
+  // before the latest. Restrict to a sensible window so we don't call a
+  // 10-year-old comparison "1yr growth".
+  const findInWindow = (yearsAgo, minYears, maxYears) => {
     const target = new Date(latest.transactionDate);
     target.setFullYear(target.getFullYear() - yearsAgo);
     let best = null;
     let bestDelta = Infinity;
-    for (const tx of sorted) {
+    for (let i = 1; i < sorted.length; i++) {
+      const tx = sorted[i];
+      const yrs = yearsBetween(tx.transactionDate, latest.transactionDate);
+      if (yrs < minYears || yrs > maxYears) continue;
       const delta = Math.abs(new Date(tx.transactionDate) - target);
       if (delta < bestDelta) {
         best = tx;
@@ -92,24 +104,19 @@ export function summarisePriceHistory(transactions) {
     return best;
   };
 
-  const growth = (from, to) => {
-    if (!from || !to || !from.pricePaid || !to.pricePaid) return null;
-    const pct = ((to.pricePaid - from.pricePaid) / from.pricePaid) * 100;
-    return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
-  };
-
-  const ref1 = findCloseTo(1);
-  const ref5 = findCloseTo(5);
+  const ref1 = findInWindow(1, 0.6, 1.6);     // 7-19 months
+  const ref5 = findInWindow(5, 3.5, 7);        // 3.5-7 years
+  const ref10 = findInWindow(10, 8, 13);       // 8-13 years
 
   return {
     lastSalePrice: latest.pricePaid,
     lastSaleDate: latest.transactionDate,
-    growth1yr: ref1 && yearsBetween(ref1.transactionDate, latest.transactionDate) >= 0.5
-      ? growth(ref1, latest)
-      : null,
-    growth5yr: ref5 && yearsBetween(ref5.transactionDate, latest.transactionDate) >= 3
-      ? growth(ref5, latest)
-      : null,
+    growth1yr: ref1 ? growth(ref1, latest) : null,
+    growth5yr: ref5 ? growth(ref5, latest) : null,
+    growth10yr: ref10 ? growth(ref10, latest) : null,
     growthAllTime: sorted.length > 1 ? growth(oldest, latest) : null,
+    yearsCovered: sorted.length > 1
+      ? yearsBetween(oldest.transactionDate, latest.transactionDate).toFixed(1)
+      : null,
   };
 }

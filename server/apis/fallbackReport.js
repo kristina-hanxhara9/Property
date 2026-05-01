@@ -244,17 +244,21 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
     riskSummary: buildOneLineSummary(riskLevel, flags),
 
     titleData: {
-      owner: 'Data unavailable — Land Registry Title Register is a paid lookup not enabled in this MVP',
+      owner: 'Data unavailable — requires paid Land Registry Title Register lookup',
       ownerType: 'unknown',
       ownerAddress: null,
       titleNumber: null,
       tenure: 'Unknown',
       leaseYearsRemaining: null,
-      mortgages: [],
-      restrictiveCovenants: [],
-      easements: [],
+      mortgages: [
+        'Data unavailable — Title Register lookup required (£7 via Land Registry Business Gateway).',
+      ],
+      restrictiveCovenants: [
+        'Data unavailable — Title Register lookup required (£7).',
+      ],
+      easements: ['Data unavailable — Title Register lookup required (£7).'],
       lastRegistrationDate: null,
-      dataSource: 'Land Registry Business Gateway (paid £7/lookup) — not enabled',
+      dataSource: 'Land Registry Title Register (paid, £7/lookup) — not enabled in this MVP',
     },
 
     priceHistory: transactions.map((t) => ({
@@ -265,6 +269,9 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
     })),
     priceGrowth1yr: priceSummary.growth1yr || null,
     priceGrowth5yr: priceSummary.growth5yr || null,
+    priceGrowth10yr: priceSummary.growth10yr || null,
+    priceGrowthAllTime: priceSummary.growthAllTime || null,
+    yearsCovered: priceSummary.yearsCovered || null,
     lastSalePrice: lastPrice ?? null,
     lastSaleDate: priceSummary.lastSaleDate || null,
 
@@ -331,6 +338,9 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
     }),
 
     planningHistoryLink: rawData?.environmentalLinks?.planningHistory || null,
+    planningHistorySupplementary:
+      rawData?.environmentalLinks?.planningHistorySupplementary || null,
+    onsAreaProfile: rawData?.environmentalLinks?.onsAreaProfile || null,
 
     flags,
 

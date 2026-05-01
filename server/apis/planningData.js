@@ -80,5 +80,7 @@ async function queryDataset(dataset, latitude, longitude) {
     organisation: e['organisation-entity'] || null,
     notes: e.notes || null,
     grade: e['listed-building-grade'] || e.grade || null,
+    website: e.website || e.url || null,
+    documentUrl: e['document-url'] || null,
   }));
 }
