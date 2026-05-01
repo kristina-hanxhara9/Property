@@ -13,6 +13,21 @@ async function chRequest(path, apiKey) {
     headers: { ...authHeader(apiKey), Accept: 'application/json' },
   });
   if (res.status === 404) return null;
+  if (res.status === 401 || res.status === 403) {
+    let body = '';
+    try {
+      body = await res.text();
+    } catch {
+      /* ignore */
+    }
+    const detail = body.slice(0, 200).replace(/\s+/g, ' ').trim();
+    const keyHint = `key len=${apiKey?.length || 0}, starts=${(apiKey || '').slice(0, 4)}…`;
+    throw new Error(
+      `Companies House ${res.status} (${keyHint}). ${
+        detail || 'Invalid or revoked API key.'
+      } Check that your application is set to "Live" (not "Test") at developer.company-information.service.gov.uk.`,
+    );
+  }
   if (!res.ok) {
     throw new Error(`Companies House ${path} returned ${res.status}`);
   }

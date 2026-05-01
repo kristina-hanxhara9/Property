@@ -372,10 +372,13 @@ app.post('/api/company-check', async (req, res) => {
   let searchResults = null;
 
   if (!resolvedNumber) {
+    const chLabel = COMPANIES_HOUSE_KEY
+      ? `Companies House — search by name (key len=${COMPANIES_HOUSE_KEY.length}, starts=${COMPANIES_HOUSE_KEY.slice(0, 4)}…)`
+      : 'Companies House — search by name · COMPANIES_HOUSE_KEY env var MISSING on backend';
     const search = await runStep(
       res,
       'ch-search',
-      'Companies House — search by name (free)',
+      chLabel,
       () => searchCompanies(companyName, COMPANIES_HOUSE_KEY),
     );
     if (!search.ok || !search.value || search.value.length === 0) {
