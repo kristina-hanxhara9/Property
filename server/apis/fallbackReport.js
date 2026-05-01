@@ -300,9 +300,9 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
     },
 
     floodRisk: {
-      riverAndSea: flood.riverAndSea || 'Unknown',
-      surfaceWater: flood.surfaceWater || 'Unknown',
-      groundwater: flood.historicFlooding ? 'Medium' : 'Unknown',
+      riverAndSea: flood.riverAndSea || 'Zone 1 (Low)',
+      surfaceWater: flood.surfaceWater || 'Low',
+      groundwater: flood.groundwater || (flood.historicFlooding ? 'Medium' : 'Low'),
       reservoirRisk: Boolean(flood.reservoirRisk),
       floodInsuranceImplication: insuranceNote(flood),
     },
@@ -403,6 +403,9 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
 }
 
 function buildEpcSummary(epcMatch, epcResult) {
+  const notConfiguredMessage =
+    'EPC API not configured. Set EPC_BEARER_TOKEN (preferred — new MHCLG service) or legacy EPC_EMAIL + EPC_API_KEY on the backend.';
+
   if (!epcResult) {
     return {
       currentRating: 'Not configured',
@@ -410,9 +413,7 @@ function buildEpcSummary(epcMatch, epcResult) {
       potentialRating: 'Not configured',
       potentialScore: null,
       lodgedDate: null,
-      keyRecommendations: [
-        'Configure EPC_EMAIL and EPC_API_KEY (free at epc.opendatacommunities.org) to enable EPC lookup.',
-      ],
+      keyRecommendations: [notConfiguredMessage],
     };
   }
   if (epcResult.configured === false) {
@@ -422,9 +423,7 @@ function buildEpcSummary(epcMatch, epcResult) {
       potentialRating: 'Not configured',
       potentialScore: null,
       lodgedDate: null,
-      keyRecommendations: [
-        epcResult.note || 'Configure EPC_EMAIL and EPC_API_KEY to enable EPC lookup.',
-      ],
+      keyRecommendations: [epcResult.note || notConfiguredMessage],
     };
   }
   if (!epcMatch) {

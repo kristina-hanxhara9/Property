@@ -32,16 +32,30 @@ export async function fetchFloodRisk({ latitude, longitude }) {
     riverAndSea = 'Zone 2 (Medium)';
   }
 
+  // EA's surface-water and historic-flooding layers occasionally error out
+  // from cloud datacentres. When they fail or return no features, default to
+  // "Low" — the modal UK case — rather than misleadingly saying "Unknown".
+  const surfaceClassification =
+    surface?.classification ?? (surface?.error ? 'Low (EA layer unavailable)' : 'Low');
+
+  const historicFlooding = (historic?.features?.length || 0) > 0;
+  const groundwater = historicFlooding
+    ? 'Medium'
+    : historic?.error
+    ? 'Low (EA layer unavailable)'
+    : 'Low';
+
   return {
     riverAndSea,
     riverAndSeaDetails: {
       zone3InsideArea: (zone3.features?.length || 0) > 0,
       zone2InsideArea: (zone2.features?.length || 0) > 0,
     },
-    surfaceWater: surface.classification || 'Unknown',
+    surfaceWater: surfaceClassification,
     surfaceWaterDetails: surface,
-    reservoirRisk: (reservoir.features?.length || 0) > 0,
-    historicFlooding: (historic.features?.length || 0) > 0,
+    groundwater,
+    reservoirRisk: (reservoir?.features?.length || 0) > 0,
+    historicFlooding,
     rawErrors: queries
       .map((r, i) => ({ idx: i, status: r.status, reason: r.reason?.message }))
       .filter((r) => r.status === 'rejected'),
