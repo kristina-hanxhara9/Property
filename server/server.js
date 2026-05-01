@@ -50,7 +50,21 @@ if (!ANTHROPIC_API_KEY) {
 }
 
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
-const MODEL = 'claude-sonnet-4-6';
+
+// Models per workload. Defaults are tuned for cost/quality balance —
+// override via env vars if you want to scale up to Opus or down to Haiku.
+//
+//   ANTHROPIC_MODEL              — main property/company synthesis
+//   ANTHROPIC_MODEL_COMPARABLES  — market-comparables agent (web search)
+//   ANTHROPIC_MODEL_CHAT         — follow-up chat panel
+//
+// Per-run cost guide (rough, varies with input size):
+//   sonnet-4-6:  $3 in / $15 out per 1M tokens   ~$0.02-0.05 per report
+//   haiku-4-5:   $1 in /  $5 out per 1M tokens   ~$0.005-0.015 per report
+//   opus-4-7:    $5 in / $25 out per 1M tokens   ~$0.05-0.15 per report
+const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+const MODEL_COMPARABLES = process.env.ANTHROPIC_MODEL_COMPARABLES || MODEL;
+const MODEL_CHAT = process.env.ANTHROPIC_MODEL_CHAT || 'claude-haiku-4-5';
 
 const app = express();
 // Render and most PaaS providers terminate TLS at a proxy and forward the
@@ -75,7 +89,13 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', model: MODEL, time: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    model: MODEL,
+    modelComparables: MODEL_COMPARABLES,
+    modelChat: MODEL_CHAT,
+    time: new Date().toISOString(),
+  });
 });
 
 function sseHeaders(res) {
@@ -510,7 +530,7 @@ app.post('/api/comparables', async (req, res) => {
   let collected = '';
   try {
     const stream = anthropic.messages.stream({
-      model: MODEL,
+      model: MODEL_COMPARABLES,
       max_tokens: 4000,
       system: COMPARABLES_SYSTEM_PROMPT,
       tools: [
@@ -598,7 +618,7 @@ ${JSON.stringify(reportContext || {}, null, 2)}`;
 
   try {
     const stream = anthropic.messages.stream({
-      model: MODEL,
+      model: MODEL_CHAT,
       max_tokens: 1500,
       system,
       messages,
@@ -638,5 +658,5 @@ function tryParseJson(text) {
 app.listen(PORT, () => {
   console.log(`[propertyiq] Server listening on http://localhost:${PORT}`);
   console.log(`[propertyiq] Allowed origin: ${ALLOWED_ORIGIN}`);
-  console.log(`[propertyiq] Model: ${MODEL}`);
+  console.log(`[propertyiq] Models — synthesis: ${MODEL}, comparables: ${MODEL_COMPARABLES}, chat: ${MODEL_CHAT}`);
 });
