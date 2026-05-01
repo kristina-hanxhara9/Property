@@ -157,10 +157,10 @@ function Message({ message }) {
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
           isUser
-            ? 'bg-ink text-white'
+            ? 'bg-claude text-white'
             : message.isError
             ? 'bg-crit-bg text-crit-text ring-1 ring-crit-text/20'
-            : 'bg-white text-slate-700 ring-1 ring-slate-200'
+            : 'bg-white text-ink ring-1 ring-cream-200'
         }`}
       >
         <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>

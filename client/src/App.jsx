@@ -124,7 +124,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-cream-50">
       <Header onHome={handleNewSearch} />
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12">
@@ -147,7 +147,7 @@ export default function App() {
         )}
       </main>
 
-      <footer className="border-t border-slate-200 bg-white">
+      <footer className="border-t border-cream-200 bg-white">
         <div className="mx-auto max-w-7xl px-4 py-6 text-xs text-slate-500 sm:px-6">
           <p>
             Data from HM Land Registry, Companies House, GOV.UK Planning Data, and the

@@ -27,9 +27,9 @@ export default function AgentLog({ steps }) {
         </p>
       </div>
 
-      <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+      <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-cream-200">
         <div
-          className="h-full rounded-full bg-ink transition-all"
+          className="h-full rounded-full bg-claude transition-all"
           style={{ width: `${(completed / Math.max(total, 1)) * 100}%` }}
         />
       </div>

@@ -12,9 +12,9 @@ export default function RecommendedSteps({ report }) {
         {steps.map((step, idx) => (
           <li
             key={`${step}-${idx}`}
-            className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-4"
+            className="flex gap-3 rounded-xl border border-cream-200 bg-cream-50 p-4"
           >
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink text-xs font-bold text-white">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-claude text-xs font-bold text-white">
               {idx + 1}
             </span>
             <p className="text-sm text-slate-700">{step}</p>

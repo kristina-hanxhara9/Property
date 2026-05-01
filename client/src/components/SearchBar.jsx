@@ -55,11 +55,11 @@ export default function SearchBar({ mode, onModeChange, onSubmit, busy }) {
 
   return (
     <div className="space-y-5">
-      <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 text-sm shadow-sm">
+      <div className="inline-flex rounded-full border border-cream-200 bg-white p-1 text-sm shadow-sm">
         <button
           type="button"
           className={`rounded-full px-4 py-2 font-semibold transition ${
-            mode === 'property' ? 'bg-ink text-white' : 'text-slate-600 hover:text-ink'
+            mode === 'property' ? 'bg-claude text-white shadow-sm' : 'text-ink/70 hover:text-claude'
           }`}
           onClick={() => onModeChange('property')}
           aria-pressed={mode === 'property'}
@@ -69,7 +69,7 @@ export default function SearchBar({ mode, onModeChange, onSubmit, busy }) {
         <button
           type="button"
           className={`rounded-full px-4 py-2 font-semibold transition ${
-            mode === 'company' ? 'bg-ink text-white' : 'text-slate-600 hover:text-ink'
+            mode === 'company' ? 'bg-claude text-white shadow-sm' : 'text-ink/70 hover:text-claude'
           }`}
           onClick={() => onModeChange('company')}
           aria-pressed={mode === 'company'}
@@ -78,7 +78,7 @@ export default function SearchBar({ mode, onModeChange, onSubmit, busy }) {
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="rounded-2xl bg-white p-2 shadow-sm ring-1 ring-slate-200">
+      <form onSubmit={handleSubmit} className="rounded-2xl bg-white p-2 shadow-sm ring-1 ring-cream-200">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
           <div className="flex flex-1 items-center gap-3 px-3">
             <SearchIcon />
@@ -92,7 +92,7 @@ export default function SearchBar({ mode, onModeChange, onSubmit, busy }) {
                   ? 'Enter UK property address (e.g. 10 Downing Street, SW1A 2AA)'
                   : 'Enter company name or 8-digit company number'
               }
-              className="w-full bg-transparent py-3 text-base outline-none placeholder:text-slate-400"
+              className="w-full bg-transparent py-3 text-base text-ink outline-none placeholder:text-ink/40"
               disabled={busy}
               autoComplete="off"
             />
@@ -108,7 +108,7 @@ export default function SearchBar({ mode, onModeChange, onSubmit, busy }) {
       </form>
 
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink/60">
           Try an example
         </p>
         <div className="flex flex-wrap gap-2">
@@ -116,7 +116,7 @@ export default function SearchBar({ mode, onModeChange, onSubmit, busy }) {
             <button
               key={ex}
               type="button"
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-full border border-cream-200 bg-white px-3 py-1.5 text-sm text-ink hover:border-claude-200 hover:bg-claude-50 disabled:opacity-50"
               onClick={() => handlePill(ex)}
               disabled={busy}
             >
@@ -128,7 +128,7 @@ export default function SearchBar({ mode, onModeChange, onSubmit, busy }) {
 
       {recent.length > 0 && (
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink/60">
             Recent searches
           </p>
           <div className="flex flex-wrap gap-2">
@@ -142,9 +142,9 @@ export default function SearchBar({ mode, onModeChange, onSubmit, busy }) {
                   onSubmit(r.value);
                 }}
                 disabled={busy}
-                className="rounded-full bg-slate-100 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                className="rounded-full bg-cream-100 px-3 py-1.5 text-sm text-ink hover:bg-cream-200 disabled:opacity-50"
               >
-                <span className="mr-1.5 text-xs uppercase tracking-wider text-slate-500">
+                <span className="mr-1.5 text-xs uppercase tracking-wider text-claude-700">
                   {r.mode === 'property' ? 'Property' : 'Company'}
                 </span>
                 {r.value}
@@ -160,7 +160,7 @@ export default function SearchBar({ mode, onModeChange, onSubmit, busy }) {
 function SearchIcon() {
   return (
     <svg
-      className="h-5 w-5 text-slate-400"
+      className="h-5 w-5 text-claude-400"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

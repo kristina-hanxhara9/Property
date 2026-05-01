@@ -5,7 +5,7 @@ export default function Home({ mode, onModeChange, onSubmit, busy }) {
     <div className="space-y-12">
       <section>
         <div className="mb-8 max-w-3xl">
-          <span className="pill-info mb-4">UK Property Intelligence</span>
+          <span className="pill mb-4 bg-claude-100 text-claude-700">UK Property Intelligence</span>
           <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
             AI-powered due diligence on any UK property or JV partner.
           </h1>
@@ -66,7 +66,7 @@ export default function Home({ mode, onModeChange, onSubmit, busy }) {
 function Step({ n, title, body }) {
   return (
     <div className="card">
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-ink font-display text-sm font-bold text-white">
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-claude font-display text-sm font-bold text-white">
         {n}
       </span>
       <h3 className="mt-3 font-display text-lg font-bold">{title}</h3>

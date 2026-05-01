@@ -1,6 +1,6 @@
 export default function Header({ onHome }) {
   return (
-    <header className="border-b border-slate-200 bg-white">
+    <header className="border-b border-cream-200 bg-white">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <button
           type="button"
@@ -9,7 +9,7 @@ export default function Header({ onHome }) {
           aria-label="PropertyIQ home"
         >
           <span
-            className="grid h-9 w-9 place-items-center rounded-xl bg-ink text-white shadow-sm"
+            className="grid h-9 w-9 place-items-center rounded-xl bg-claude text-white shadow-sm"
             aria-hidden
           >
             <Logo />
@@ -18,20 +18,20 @@ export default function Header({ onHome }) {
             <span className="block font-display text-lg font-bold leading-none tracking-tight text-ink">
               PropertyIQ
             </span>
-            <span className="block text-xs font-medium uppercase tracking-wider text-slate-500">
+            <span className="block text-xs font-medium uppercase tracking-wider text-claude-700">
               UK Property Intelligence
             </span>
           </span>
         </button>
 
-        <nav className="hidden items-center gap-6 text-sm text-slate-600 md:flex">
-          <a href="#how-it-works" className="hover:text-ink">How it works</a>
-          <a href="#data-sources" className="hover:text-ink">Data sources</a>
+        <nav className="hidden items-center gap-6 text-sm text-ink/70 md:flex">
+          <a href="#how-it-works" className="hover:text-claude">How it works</a>
+          <a href="#data-sources" className="hover:text-claude">Data sources</a>
           <a
             href="https://platform.claude.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="hover:text-ink"
+            className="hover:text-claude"
           >
             Powered by Claude
           </a>

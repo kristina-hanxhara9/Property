@@ -9,6 +9,10 @@ import { fetchPricePaidByPostcode, summarisePriceHistory } from './apis/landRegi
 import { fetchPlanningConstraints } from './apis/planningData.js';
 import { fetchFloodRisk } from './apis/floodRisk.js';
 import { searchCompanies, fetchCompanyBundle } from './apis/companiesHouse.js';
+import {
+  buildPropertyFallbackReport,
+  buildCompanyFallbackReport,
+} from './apis/fallbackReport.js';
 
 import { PROPERTY_SYSTEM_PROMPT, buildPropertyUserMessage } from './prompts/propertyAnalysis.js';
 import { COMPANY_SYSTEM_PROMPT, buildCompanyUserMessage } from './prompts/companyAnalysis.js';
@@ -166,13 +170,33 @@ app.post('/api/property-check', async (req, res) => {
   const apisQueried = 4;
   const apisSuccessful = apisQueried - apisFailed.length;
 
+  const rawDataForReport = {
+    ...apiResults,
+    meta: { apisQueried, apisSuccessful, apisFailed },
+  };
+
+  const fallbackReport = buildPropertyFallbackReport({
+    address,
+    postcode: postcodeStr,
+    rawData: rawDataForReport,
+  });
+
+  if (!ANTHROPIC_API_KEY) {
+    sseSend(res, 'step', {
+      name: 'claude',
+      label: 'Claude AI synthesis (skipped — using rule-based fallback)',
+      status: 'failed',
+      error: 'No ANTHROPIC_API_KEY configured. Showing report built directly from the open-data sources.',
+    });
+    sseSend(res, 'report', fallbackReport);
+    res.end();
+    return;
+  }
+
   const userMessage = buildPropertyUserMessage({
     address,
     postcode: postcodeStr,
-    rawData: {
-      ...apiResults,
-      meta: { apisQueried, apisSuccessful, apisFailed },
-    },
+    rawData: rawDataForReport,
   });
 
   sseSend(res, 'step', {
@@ -209,21 +233,18 @@ app.post('/api/property-check', async (req, res) => {
     const parsed = tryParseJson(fullText) || tryParseJson(collected);
 
     if (!parsed) {
-      sseSend(res, 'error', {
-        message: 'Claude returned a response that could not be parsed as JSON.',
-        raw: fullText.slice(0, 4000),
-      });
+      sseSend(res, 'report', fallbackReport);
     } else {
       sseSend(res, 'report', parsed);
     }
   } catch (err) {
     sseSend(res, 'step', {
       name: 'claude',
-      label: 'Claude AI synthesis',
+      label: 'Claude AI synthesis (failed — using rule-based fallback)',
       status: 'failed',
       error: err?.message || 'Claude error',
     });
-    sseSend(res, 'error', { message: err?.message || 'Claude synthesis failed.' });
+    sseSend(res, 'report', fallbackReport);
   }
 
   res.end();
@@ -297,13 +318,32 @@ app.post('/api/company-check', async (req, res) => {
   const apisQueried = 6;
   const apisSuccessful = apisQueried - apisFailed.length;
 
+  const companyRawData = {
+    searchResults,
+    ...bundle,
+    meta: { apisQueried, apisSuccessful, apisFailed },
+  };
+
+  const fallbackReport = buildCompanyFallbackReport({
+    companyInput: companyName || resolvedNumber,
+    rawData: companyRawData,
+  });
+
+  if (!ANTHROPIC_API_KEY) {
+    sseSend(res, 'step', {
+      name: 'claude',
+      label: 'Claude AI synthesis (skipped — using rule-based fallback)',
+      status: 'failed',
+      error: 'No ANTHROPIC_API_KEY configured. Showing report built directly from Companies House data.',
+    });
+    sseSend(res, 'report', fallbackReport);
+    res.end();
+    return;
+  }
+
   const userMessage = buildCompanyUserMessage({
     companyInput: companyName || resolvedNumber,
-    rawData: {
-      searchResults,
-      ...bundle,
-      meta: { apisQueried, apisSuccessful, apisFailed },
-    },
+    rawData: companyRawData,
   });
 
   sseSend(res, 'step', {
@@ -340,21 +380,18 @@ app.post('/api/company-check', async (req, res) => {
     const parsed = tryParseJson(fullText) || tryParseJson(collected);
 
     if (!parsed) {
-      sseSend(res, 'error', {
-        message: 'Claude returned a response that could not be parsed as JSON.',
-        raw: fullText.slice(0, 4000),
-      });
+      sseSend(res, 'report', fallbackReport);
     } else {
       sseSend(res, 'report', parsed);
     }
   } catch (err) {
     sseSend(res, 'step', {
       name: 'claude',
-      label: 'Claude AI synthesis',
+      label: 'Claude AI synthesis (failed — using rule-based fallback)',
       status: 'failed',
       error: err?.message || 'Claude error',
     });
-    sseSend(res, 'error', { message: err?.message || 'Claude synthesis failed.' });
+    sseSend(res, 'report', fallbackReport);
   }
 
   res.end();
