@@ -39,6 +39,9 @@ const COMPANIES_HOUSE_KEY = process.env.COMPANIES_HOUSE_KEY || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const EPC_EMAIL = process.env.EPC_EMAIL || '';
 const EPC_API_KEY = process.env.EPC_API_KEY || '';
+const EPC_BEARER_TOKEN = process.env.EPC_BEARER_TOKEN || '';
+const EPC_BASE_URL = process.env.EPC_BASE_URL || '';
+const EPC_CONFIGURED = Boolean(EPC_BEARER_TOKEN || (EPC_EMAIL && EPC_API_KEY));
 
 if (!ANTHROPIC_API_KEY) {
   console.warn('[propertyiq] ANTHROPIC_API_KEY is not set — Claude synthesis will fail.');
@@ -169,10 +172,19 @@ app.post('/api/property-check', async (req, res) => {
   const epcPromise = runStep(
     res,
     'epc',
-    EPC_API_KEY
-      ? 'EPC Register — energy performance (free)'
-      : 'EPC Register — skipped (set EPC_EMAIL and EPC_API_KEY)',
-    () => fetchEpcByPostcode({ postcode: postcodeStr, addressFragment: address }, { email: EPC_EMAIL, apiKey: EPC_API_KEY }),
+    EPC_CONFIGURED
+      ? `EPC Register — energy performance (${EPC_BEARER_TOKEN ? 'Bearer auth' : 'legacy Basic auth'})`
+      : 'EPC Register — skipped (set EPC_BEARER_TOKEN or EPC_EMAIL+EPC_API_KEY)',
+    () =>
+      fetchEpcByPostcode(
+        { postcode: postcodeStr, addressFragment: address },
+        {
+          bearerToken: EPC_BEARER_TOKEN,
+          email: EPC_EMAIL,
+          apiKey: EPC_API_KEY,
+          baseUrl: EPC_BASE_URL,
+        },
+      ),
   );
   const lsoaCode = geo.value?.codes?.lsoa || null;
   const imdPromise = runStep(

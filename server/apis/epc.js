@@ -1,21 +1,43 @@
-const BASE_URL = 'https://epc.opendatacommunities.org/api/v1/domestic/search';
+// EPC Register integration.
+// Supports both auth methods during the migration window:
+//   1. NEW: Bearer token (post-May-2026, "Get energy performance of buildings data service")
+//      Set EPC_BEARER_TOKEN.
+//   2. LEGACY: HTTP Basic with email:api-key (epc.opendatacommunities.org, retires 30 May 2026)
+//      Set EPC_EMAIL + EPC_API_KEY.
+// If both are configured, Bearer takes precedence.
+//
+// The endpoint URL itself is configurable via EPC_BASE_URL since the service
+// is migrating. Default points at the long-standing opendatacommunities path
+// which still serves both auth styles during the transition.
 
-// EPC API auth: HTTP Basic with email:api-key.
-// Sign up free at https://epc.opendatacommunities.org/ to get a key.
-function authHeader({ email, apiKey }) {
-  if (!email || !apiKey) {
-    throw new Error('EPC_EMAIL and EPC_API_KEY must be configured');
+const DEFAULT_BASE_URL = 'https://epc.opendatacommunities.org/api/v1/domestic/search';
+
+function buildAuthHeader({ bearerToken, email, apiKey }) {
+  if (bearerToken) {
+    return { Authorization: `Bearer ${bearerToken}` };
   }
-  const encoded = Buffer.from(`${email}:${apiKey}`).toString('base64');
-  return { Authorization: `Basic ${encoded}` };
+  if (email && apiKey) {
+    const encoded = Buffer.from(`${email}:${apiKey}`).toString('base64');
+    return { Authorization: `Basic ${encoded}` };
+  }
+  return null;
 }
 
-export async function fetchEpcByPostcode({ postcode, addressFragment }, { email, apiKey } = {}) {
-  if (!email || !apiKey) {
-    return { configured: false, results: [], note: 'EPC API key not configured on the server.' };
+export async function fetchEpcByPostcode(
+  { postcode, addressFragment },
+  { bearerToken, email, apiKey, baseUrl } = {},
+) {
+  const auth = buildAuthHeader({ bearerToken, email, apiKey });
+  if (!auth) {
+    return {
+      configured: false,
+      results: [],
+      note:
+        'EPC API not configured. Set EPC_BEARER_TOKEN (preferred — new service) or EPC_EMAIL + EPC_API_KEY (legacy, retires 30 May 2026).',
+    };
   }
 
-  const url = new URL(BASE_URL);
+  const url = new URL(baseUrl || DEFAULT_BASE_URL);
   url.searchParams.set('postcode', postcode);
   url.searchParams.set('size', '20');
   if (addressFragment) {
@@ -23,23 +45,26 @@ export async function fetchEpcByPostcode({ postcode, addressFragment }, { email,
   }
 
   const res = await fetch(url, {
-    headers: { ...authHeader({ email, apiKey }), Accept: 'application/json' },
+    headers: { ...auth, Accept: 'application/json' },
   });
 
   if (res.status === 401 || res.status === 403) {
-    throw new Error('EPC API authentication failed — verify EPC_EMAIL and EPC_API_KEY.');
+    throw new Error(
+      'EPC API authentication failed — check your Bearer token (or EPC_EMAIL + EPC_API_KEY for legacy auth).',
+    );
   }
   if (!res.ok) {
     throw new Error(`EPC API returned ${res.status}`);
   }
   const body = await res.json();
-  const rows = body?.rows || [];
+  const rows = body?.rows || body?.data || [];
 
   return {
     configured: true,
+    authStyle: bearerToken ? 'bearer' : 'basic',
     count: rows.length,
     results: rows.map((r) => ({
-      address: r.address,
+      address: r.address || joinAddress(r),
       lodgementDate: r['lodgement-date'] || r.lodgement_date || null,
       currentRating: r['current-energy-rating'] || r.current_energy_rating || null,
       currentScore: numberOrNull(r['current-energy-efficiency'] || r.current_energy_efficiency),
@@ -55,6 +80,12 @@ export async function fetchEpcByPostcode({ postcode, addressFragment }, { email,
       lmkKey: r['lmk-key'] || null,
     })),
   };
+}
+
+function joinAddress(r) {
+  return [r.address1, r.address2, r.address3, r.posttown, r.postcode]
+    .filter(Boolean)
+    .join(', ');
 }
 
 function numberOrNull(v) {
