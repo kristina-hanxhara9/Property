@@ -3,6 +3,7 @@ import Header from './components/Header.jsx';
 import Home from './pages/Home.jsx';
 import Report from './pages/Report.jsx';
 import { streamPostSSE } from './lib/sseClient.js';
+import { apiUrl } from './lib/api.js';
 
 function detectPostcode(text) {
   if (!text) return null;
@@ -47,10 +48,10 @@ export default function App() {
       abortRef.current?.abort();
       abortRef.current = controller;
 
-      let endpoint = '/api/property-check';
+      let endpoint = apiUrl('/api/property-check');
       let body = { address: input, postcode: detectPostcode(input) };
       if (runMode === 'company') {
-        endpoint = '/api/company-check';
+        endpoint = apiUrl('/api/company-check');
         const looksLikeNumber = /^\d{8}$/.test(input.replace(/\s/g, ''));
         body = looksLikeNumber
           ? { companyNumber: input.replace(/\s/g, '') }

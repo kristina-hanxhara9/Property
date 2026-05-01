@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { streamPostSSE } from '../lib/sseClient.js';
+import { apiUrl } from '../lib/api.js';
 
 export default function ChatPanel({ report, pendingPrompt, onPromptConsumed }) {
   const [messages, setMessages] = useState([]);
@@ -36,7 +37,7 @@ export default function ChatPanel({ report, pendingPrompt, onPromptConsumed }) {
 
     try {
       await streamPostSSE(
-        '/api/chat',
+        apiUrl('/api/chat'),
         {
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
           reportContext: report,
