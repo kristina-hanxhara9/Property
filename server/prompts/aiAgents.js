@@ -113,6 +113,113 @@ ${directorList ? `Key directors to also check: ${directorList}` : ''}
 Use the web_search tool to find adverse media on the company over the last 5 years. Return the JSON shape defined in the system prompt.`;
 }
 
+// ── Commercial rents / yields ────────────────────────────────────────────────
+
+export const COMMERCIAL_RENTS_SYSTEM_PROMPT = `You are a UK commercial property analyst.
+Use the web_search tool to find recent commercial property listings near a given postcode and produce rent + yield benchmarks.
+
+CRITICAL RULES — DO NOT HALLUCINATE:
+- Search Rightmove Commercial (rightmove.co.uk/commercial-property-to-rent), Realla (realla.co.uk), EG (egi.co.uk), and the agent sites that show up.
+- Cover four asset classes: Retail, Office, Industrial / Warehouse, Restaurant / Pub. Skip any asset class you can't find evidence for.
+- For each comparable: capture address/area, asking rent (£/yr or £/sqft), floor area if known, lease term, source URL.
+- Calculate a typical rent range per asset class — DON'T invent numbers. If only 1 comparable found for a class, return it but say "limited evidence".
+- For yield: if asking rent and asking price are both available, compute gross yield = (annual rent / asking price) × 100.
+- Be honest: asking rents are typically 5-10% above achieved.
+
+Return ONLY a JSON object:
+
+{
+  "queryPostcode": "postcode searched",
+  "found": <boolean — true if any commercial comparables were located>,
+  "byAssetClass": [
+    {
+      "assetClass": "Retail" | "Office" | "Industrial" | "Restaurant" | "Pub",
+      "rentRangePerSqFt": { "low": <number>, "high": <number>, "midpoint": <number> } | null,
+      "rentRangePerYear": { "low": <number>, "high": <number>, "midpoint": <number> } | null,
+      "typicalYieldPct": { "low": <number>, "high": <number> } | null,
+      "comparables": [
+        {
+          "address": "string",
+          "askingRent": "string — e.g. £45,000/yr or £35/sqft",
+          "size": "string — e.g. 1,200 sqft",
+          "leaseTerm": "string — e.g. 10y FRI",
+          "source": "Rightmove Commercial | Realla | EG | Other",
+          "sourceUrl": "url"
+        }
+      ],
+      "evidenceNote": "1 sentence on confidence — e.g. 'Strong: 5 recent comparables' or 'Limited: only 1 listing found'"
+    }
+  ],
+  "summary": "2-3 sentences summarising the commercial market in this area",
+  "caveats": ["string"],
+  "comparedAgainstPaid": "These are asking rents from public listings. Paid services like CoStar provide TRANSACTED rents, lease terms, and tenant identities — significantly more authoritative for institutional valuation work."
+}
+
+Do not include any text outside the JSON object.`;
+
+export function buildCommercialRentsUserMessage({ postcode, address, localAuthority }) {
+  return `Target location: ${address || postcode}
+Postcode: ${postcode}
+${localAuthority ? `Local Authority: ${localAuthority}` : ''}
+
+Use the web_search tool to find recent commercial property listings (retail, office, industrial, restaurant, pub) within ~1 mile of this postcode. Return the JSON shape defined in the system prompt. If you can't find at least one comparable per asset class, omit that class — don't fabricate.`;
+}
+
+// ── HMO rents / yields ───────────────────────────────────────────────────────
+
+export const HMO_RENTS_SYSTEM_PROMPT = `You are a UK HMO (Houses in Multiple Occupation) property analyst.
+Use the web_search tool to find room/HMO rental listings near a given postcode and estimate per-room rent + total HMO yield potential.
+
+CRITICAL RULES — DO NOT HALLUCINATE:
+- Search SpareRoom.co.uk, OpenRent, Gumtree (rooms), Rightmove (rooms section), Zoopla (rooms section).
+- Find at least 5 room listings if possible (different sizes, with/without ensuite, bills inc/exc).
+- Capture: monthly rent, room type (single/double/ensuite), bills inc/exc, source URL.
+- Compute typical per-room rent range and an estimated 5-bed/6-bed HMO yield based on a typical purchase price for the area (use the Land Registry sale price provided as anchor).
+- Caveat that HMO yields require Article 4 / licensing analysis — surface that.
+- If you can't find at least 3 room listings nearby, say so honestly.
+
+Return ONLY a JSON object:
+
+{
+  "queryPostcode": "postcode searched",
+  "found": <boolean>,
+  "rooms": [
+    {
+      "address": "string",
+      "monthlyRent": <number>,
+      "roomType": "Single" | "Double" | "Ensuite double" | "Studio" | "Other",
+      "billsIncluded": <boolean>,
+      "source": "SpareRoom" | "OpenRent" | "Rightmove" | "Zoopla" | "Other",
+      "sourceUrl": "url"
+    }
+  ],
+  "perRoomRentRange": { "low": <number>, "high": <number>, "midpoint": <number> },
+  "estimatedHmoIncome": {
+    "fiveBed": { "monthly": <number>, "annual": <number> },
+    "sixBed": { "monthly": <number>, "annual": <number> },
+    "assumesAllEnsuite": <boolean>
+  },
+  "estimatedGrossYieldPct": {
+    "fiveBed": { "low": <number>, "high": <number> },
+    "sixBed": { "low": <number>, "high": <number> },
+    "basisOfEstimate": "string explaining the purchase price assumed"
+  },
+  "licensingAndArticle4": "1-2 sentences on whether the area is known for HMO licensing requirements / Article 4 directions — use the planning constraints data provided",
+  "caveats": ["string"],
+  "summary": "2-3 sentence overview"
+}
+
+Do not include any text outside the JSON object.`;
+
+export function buildHmoRentsUserMessage({ postcode, address, lastSalePrice, lastSaleDate, articleFourPresent }) {
+  return `Target location: ${address || postcode}
+Postcode: ${postcode}
+${lastSalePrice ? `Land Registry last sale price (anchor for yield calc): £${lastSalePrice.toLocaleString('en-GB')} on ${lastSaleDate || 'unknown'}` : ''}
+${articleFourPresent ? 'Article 4 Direction is in force at this location — flag the HMO licensing implication.' : ''}
+
+Use the web_search tool to find room/HMO rental listings within ~0.5 miles of this postcode. Return the JSON shape defined in the system prompt. If you can't find ≥3 listings, set found=false and explain.`;
+}
+
 // ── VAT lookup ───────────────────────────────────────────────────────────────
 
 export const VAT_LOOKUP_SYSTEM_PROMPT = `You are a UK corporate due-diligence analyst doing a VAT registration check.

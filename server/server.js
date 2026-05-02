@@ -57,6 +57,10 @@ import {
   buildVatUserMessage,
   CORPORATE_PROPERTIES_SYSTEM_PROMPT,
   buildCorporatePropertiesUserMessage,
+  COMMERCIAL_RENTS_SYSTEM_PROMPT,
+  buildCommercialRentsUserMessage,
+  HMO_RENTS_SYSTEM_PROMPT,
+  buildHmoRentsUserMessage,
 } from './prompts/aiAgents.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -1001,6 +1005,38 @@ app.post('/api/corporate-properties', async (req, res) => {
     maxUses: 8,
     eventName: 'corporate-properties',
     label: 'Corporate property holdings agent — Claude + web search (annual reports, property press)',
+  });
+});
+
+app.post('/api/commercial-rents', async (req, res) => {
+  const { postcode, address, localAuthority } = req.body || {};
+  if (!postcode) {
+    res.status(400).json({ error: 'postcode required' });
+    return;
+  }
+  await runWebSearchAgent(res, {
+    systemPrompt: COMMERCIAL_RENTS_SYSTEM_PROMPT,
+    userMessage: buildCommercialRentsUserMessage({ postcode, address, localAuthority }),
+    allowedDomains: ['rightmove.co.uk', 'realla.co.uk', 'egi.co.uk', 'estatesgazette.com'],
+    maxUses: 8,
+    eventName: 'commercial-rents',
+    label: 'Commercial rents agent — Rightmove Commercial / Realla / EG (alt to CoStar)',
+  });
+});
+
+app.post('/api/hmo-rents', async (req, res) => {
+  const { postcode, address, lastSalePrice, lastSaleDate, articleFourPresent } = req.body || {};
+  if (!postcode) {
+    res.status(400).json({ error: 'postcode required' });
+    return;
+  }
+  await runWebSearchAgent(res, {
+    systemPrompt: HMO_RENTS_SYSTEM_PROMPT,
+    userMessage: buildHmoRentsUserMessage({ postcode, address, lastSalePrice, lastSaleDate, articleFourPresent }),
+    allowedDomains: ['spareroom.co.uk', 'openrent.co.uk', 'rightmove.co.uk', 'zoopla.co.uk', 'gumtree.com'],
+    maxUses: 6,
+    eventName: 'hmo-rents',
+    label: 'HMO rents agent — SpareRoom / OpenRent / Rightmove rooms',
   });
 });
 

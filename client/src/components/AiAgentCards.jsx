@@ -105,6 +105,227 @@ function AvmResult({ data }) {
   );
 }
 
+export function CommercialRentsAgentCard({ report }) {
+  const postcode = report?.queryInput?.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[1];
+  const body = {
+    postcode: postcode || '',
+    address: report?.queryInput,
+    localAuthority: report?.marketContext?.localAuthority,
+  };
+  return (
+    <AgentRunnerCard
+      title="Commercial rents (alternative to CoStar)"
+      subtitle="Searches Rightmove Commercial, Realla, and EG for retail / office / industrial / restaurant / pub asking rents in this postcode area. Replaces ~£500-2000/mo CoStar for indicative use — paid services have transacted rents which are more authoritative."
+      endpoint="/api/commercial-rents"
+      body={body}
+      eventName="commercial-rents"
+      buttonLabel="Run commercial rents agent"
+      caveats={[
+        'Asking rents only — typically 5-10% above achieved.',
+        'For institutional valuation work CoStar / Realla paid is essential — they have transacted rents and tenant identities.',
+      ]}
+      renderResult={(d) => <CommercialRentsResult data={d} />}
+    />
+  );
+}
+
+function CommercialRentsResult({ data }) {
+  if (!data.found || !(data.byAssetClass || []).length) {
+    return (
+      <div className="rounded-xl border border-warn-bg bg-warn-bg/40 p-3 text-sm">
+        <p className="font-semibold text-warn-text">No commercial comparables found nearby</p>
+        <p className="mt-1 text-xs text-slate-700">{safeText(data.summary)}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-700">{safeText(data.summary)}</p>
+      {data.byAssetClass.map((c, i) => (
+        <div key={i} className="rounded-xl border border-cream-200 bg-cream-50 p-3 text-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="font-display font-bold text-ink">{safeText(c.assetClass)}</p>
+            <span className="pill-info">{safeText(c.evidenceNote)}</span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+            {c.rentRangePerSqFt && (
+              <Stat
+                label="Rent £/sqft"
+                value={`£${c.rentRangePerSqFt.low ?? '?'} – £${c.rentRangePerSqFt.high ?? '?'}`}
+                sub={c.rentRangePerSqFt.midpoint ? `mid £${c.rentRangePerSqFt.midpoint}` : ''}
+              />
+            )}
+            {c.typicalYieldPct && (
+              <Stat
+                label="Yield range"
+                value={`${c.typicalYieldPct.low ?? '?'}% – ${c.typicalYieldPct.high ?? '?'}%`}
+              />
+            )}
+          </div>
+          {(c.comparables || []).length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs">
+              {c.comparables.slice(0, 4).map((cmp, j) => (
+                <li key={j} className="rounded bg-white p-1.5 ring-1 ring-cream-200">
+                  <p className="font-medium text-ink">
+                    {safeText(cmp.address)} — {safeText(cmp.askingRent)}
+                  </p>
+                  <p className="text-slate-500">
+                    {safeText(cmp.size)} · {safeText(cmp.leaseTerm)} ·{' '}
+                    {cmp.sourceUrl ? (
+                      <a href={cmp.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-claude-700 hover:underline">
+                        {safeText(cmp.source)} ↗
+                      </a>
+                    ) : (
+                      safeText(cmp.source)
+                    )}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function HmoRentsAgentCard({ report }) {
+  const postcode = report?.queryInput?.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[1];
+  const body = {
+    postcode: postcode || '',
+    address: report?.queryInput,
+    lastSalePrice: report?.lastSalePrice,
+    lastSaleDate: report?.lastSaleDate,
+    articleFourPresent: report?.planningConstraints?.articleFourDirection?.present,
+  };
+  return (
+    <AgentRunnerCard
+      title="HMO rents & yields (SpareRoom + OpenRent)"
+      subtitle="Searches SpareRoom, OpenRent, Rightmove rooms for per-room rentals near this postcode and estimates 5-bed / 6-bed HMO income + gross yield using the Land Registry sale price as anchor. Surfaces Article 4 / licensing implications."
+      endpoint="/api/hmo-rents"
+      body={body}
+      eventName="hmo-rents"
+      buttonLabel="Run HMO yield agent"
+      caveats={[
+        'Per-room rents from public listings — typically 3-8% above achieved.',
+        'HMO yield assumes you can let every room every month (void + bills should reduce by ~10-15%).',
+        'Article 4 + LA HMO licensing rules dramatically affect feasibility — check the LA portal.',
+      ]}
+      renderResult={(d) => <HmoRentsResult data={d} />}
+    />
+  );
+}
+
+function HmoRentsResult({ data }) {
+  if (!data.found) {
+    return (
+      <div className="rounded-xl border border-warn-bg bg-warn-bg/40 p-3 text-sm">
+        <p className="font-semibold text-warn-text">No room listings found nearby</p>
+        <p className="mt-1 text-xs text-slate-700">{safeText(data.summary)}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {data.perRoomRentRange && (
+        <div className="grid grid-cols-3 gap-2">
+          <Stat
+            label="Per-room rent (low)"
+            value={formatGBP(data.perRoomRentRange.low) + '/mo'}
+          />
+          <Stat label="Mid" value={formatGBP(data.perRoomRentRange.midpoint) + '/mo'} />
+          <Stat
+            label="Per-room rent (high)"
+            value={formatGBP(data.perRoomRentRange.high) + '/mo'}
+          />
+        </div>
+      )}
+
+      {data.estimatedHmoIncome && (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-cream-50 p-2 text-center">
+            <p className="text-xs uppercase tracking-wider text-slate-500">5-bed HMO income</p>
+            <p className="font-display text-lg font-bold tabular-nums text-ink">
+              {formatGBP(data.estimatedHmoIncome.fiveBed?.annual)} / yr
+            </p>
+            <p className="text-xs text-slate-500">
+              ({formatGBP(data.estimatedHmoIncome.fiveBed?.monthly)} / mo)
+            </p>
+          </div>
+          <div className="rounded-xl bg-cream-50 p-2 text-center">
+            <p className="text-xs uppercase tracking-wider text-slate-500">6-bed HMO income</p>
+            <p className="font-display text-lg font-bold tabular-nums text-ink">
+              {formatGBP(data.estimatedHmoIncome.sixBed?.annual)} / yr
+            </p>
+            <p className="text-xs text-slate-500">
+              ({formatGBP(data.estimatedHmoIncome.sixBed?.monthly)} / mo)
+            </p>
+          </div>
+        </div>
+      )}
+
+      {data.estimatedGrossYieldPct && (
+        <div className="rounded-xl border border-claude-200 bg-claude-50 p-3 text-sm">
+          <p className="font-semibold text-claude-700">Estimated gross yield</p>
+          <div className="mt-1 grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <p className="text-slate-500">5-bed</p>
+              <p className="font-display font-bold text-ink">
+                {data.estimatedGrossYieldPct.fiveBed?.low}% – {data.estimatedGrossYieldPct.fiveBed?.high}%
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">6-bed</p>
+              <p className="font-display font-bold text-ink">
+                {data.estimatedGrossYieldPct.sixBed?.low}% – {data.estimatedGrossYieldPct.sixBed?.high}%
+              </p>
+            </div>
+          </div>
+          <p className="mt-1 text-xs text-slate-600">
+            {safeText(data.estimatedGrossYieldPct.basisOfEstimate)}
+          </p>
+        </div>
+      )}
+
+      {data.licensingAndArticle4 && (
+        <div className="rounded-xl bg-warn-bg/30 p-2 text-xs text-warn-text">
+          <span className="font-semibold">⚠ Licensing:</span> {safeText(data.licensingAndArticle4)}
+        </div>
+      )}
+
+      {(data.rooms || []).length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-claude-700">
+            Sample room listings ({data.rooms.length})
+          </p>
+          <ul className="space-y-1 text-xs">
+            {data.rooms.slice(0, 5).map((r, i) => (
+              <li key={i} className="rounded bg-cream-50 p-2">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-medium text-ink">{safeText(r.address)}</span>
+                  <span className="font-display font-bold text-claude-700 tabular-nums">
+                    {formatGBP(r.monthlyRent)}/mo
+                  </span>
+                </div>
+                <p className="text-slate-500">
+                  {safeText(r.roomType)} · {r.billsIncluded ? 'bills inc' : 'bills exc'} ·{' '}
+                  {r.sourceUrl ? (
+                    <a href={r.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-claude-700 hover:underline">
+                      {safeText(r.source)} ↗
+                    </a>
+                  ) : (
+                    safeText(r.source)
+                  )}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ConstructionCostAgentCard({ report }) {
   const postcode = report?.queryInput?.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[1];
   const body = {

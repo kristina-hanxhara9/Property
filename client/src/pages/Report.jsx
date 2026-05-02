@@ -15,6 +15,8 @@ import {
   AdverseMediaAgentCard,
   VatLookupAgentCard,
   CorporatePropertiesAgentCard,
+  CommercialRentsAgentCard,
+  HmoRentsAgentCard,
 } from '../components/AiAgentCards.jsx';
 import VatVerifyCard from '../components/VatVerifyCard.jsx';
 import { apiUrl } from '../lib/api.js';
@@ -127,6 +129,8 @@ export default function Report({
             <>
               <MarketComparables report={report} />
               <AvmAgentCard report={report} />
+              <HmoRentsAgentCard report={report} />
+              <CommercialRentsAgentCard report={report} />
               <ConstructionCostAgentCard report={report} />
             </>
           )}

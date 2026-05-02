@@ -61,6 +61,8 @@ const CATEGORIES = [
         unlocks:
           'Live asking-price feed · sold prices · rental listings · daily updates · proprietary HMO + commercial dataset',
         link: 'https://www.rightmove.co.uk/data-services',
+        aiAlternative:
+          'Market Comparables + AVM + Commercial Rents + HMO Rents agents (built-in, all use Claude web search). 80% coverage at ~$0.05–0.20 per run.',
       },
       {
         name: 'Zoopla Data Services',
