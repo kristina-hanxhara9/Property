@@ -15,6 +15,7 @@ import {
   AdverseMediaAgentCard,
   VatLookupAgentCard,
 } from '../components/AiAgentCards.jsx';
+import VatVerifyCard from '../components/VatVerifyCard.jsx';
 import { apiUrl } from '../lib/api.js';
 
 export default function Report({
@@ -132,6 +133,7 @@ export default function Report({
           {reportType === 'company' && (
             <>
               <AdverseMediaAgentCard report={report} />
+              <VatVerifyCard />
               <VatLookupAgentCard report={report} />
             </>
           )}

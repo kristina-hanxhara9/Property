@@ -11,6 +11,7 @@ import { fetchFloodRisk } from './apis/floodRisk.js';
 import { searchCompanies, fetchCompanyBundle } from './apis/companiesHouse.js';
 import { checkSanctions } from './apis/sanctions.js';
 import { searchCorporatePropertyHoldings } from './apis/ccod.js';
+import { verifyVatNumber } from './apis/vat.js';
 import { fetchEpcByPostcode, pickBestEpc } from './apis/epc.js';
 import { fetchPlanningApplications } from './apis/planit.js';
 import { buildPropertyDocx, buildCompanyDocx } from './apis/docxExport.js';
@@ -60,6 +61,8 @@ const PORT = Number(process.env.PORT || 3001);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:5173';
 const COMPANIES_HOUSE_KEY = process.env.COMPANIES_HOUSE_KEY || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const HMRC_CLIENT_ID = process.env.HMRC_CLIENT_ID || '';
+const HMRC_CLIENT_SECRET = process.env.HMRC_CLIENT_SECRET || '';
 const EPC_EMAIL = process.env.EPC_EMAIL || '';
 const EPC_API_KEY = process.env.EPC_API_KEY || '';
 const EPC_BEARER_TOKEN = process.env.EPC_BEARER_TOKEN || '';
@@ -921,6 +924,25 @@ app.post('/api/adverse-media', async (req, res) => {
     eventName: 'adverse-media',
     label: 'Adverse media agent — Claude + web search (FT/Guardian/BBC/Property Week/etc.)',
   });
+});
+
+// Synchronous VAT verification — no Claude / no SSE. Takes a VAT number,
+// returns HMRC / VIES verification result. Free, fast, deterministic.
+app.post('/api/vat-verify', async (req, res) => {
+  const { vatNumber } = req.body || {};
+  if (!vatNumber) {
+    res.status(400).json({ error: 'vatNumber required' });
+    return;
+  }
+  try {
+    const result = await verifyVatNumber(vatNumber, {
+      hmrcClientId: HMRC_CLIENT_ID,
+      hmrcClientSecret: HMRC_CLIENT_SECRET,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err?.message || 'VAT verification failed.' });
+  }
 });
 
 app.post('/api/vat-lookup', async (req, res) => {
