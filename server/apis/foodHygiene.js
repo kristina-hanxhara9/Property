@@ -20,15 +20,30 @@ export async function fetchFoodHygieneRatings({ postcode, latitude, longitude, r
   url.searchParams.set('pageSize', '50');
   url.searchParams.set('pageNumber', '1');
 
-  const res = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-      'x-api-version': '2',
-    },
-  });
+  // FSA API requires the version header (currently 2) and likes a UA.
+  // Try v2 first, fall back to v1 if the response is empty / errors.
+  const tryFetch = async (apiVersion) => {
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'x-api-version': apiVersion,
+        'User-Agent': 'PropertyIQ/0.1',
+      },
+    });
+    if (!res.ok) throw new Error(`FSA API ${apiVersion} returned ${res.status}`);
+    return await res.json();
+  };
 
-  if (!res.ok) throw new Error(`FSA API returned ${res.status}`);
-  const body = await res.json();
+  let body;
+  try {
+    body = await tryFetch('2');
+  } catch (err) {
+    try {
+      body = await tryFetch('1');
+    } catch {
+      throw err;
+    }
+  }
   const establishments = body?.establishments || [];
 
   const ratingCounts = {};

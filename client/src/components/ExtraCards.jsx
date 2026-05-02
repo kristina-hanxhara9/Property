@@ -89,12 +89,10 @@ export function SchoolsCard({ report }) {
   if (!s) return null;
   const list = s.schools || [];
   return (
-    <CardShell title="Nearby schools (1 mile)" source="Source: Department for Education">
+    <CardShell title="Nearby schools (1 mile)" source="Source: OpenStreetMap + GOV.UK Compare Schools">
       {list.length === 0 ? (
         <p className="text-sm text-slate-500">
-          {s.error ||
-            s.note ||
-            'No state schools matched. Try the DfE Get Information About Schools site directly.'}
+          {safeText(s.error || s.note, 'No schools tagged in OpenStreetMap for this area.')}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -129,6 +127,21 @@ export function SchoolsCard({ report }) {
             );
           })}
         </ul>
+      )}
+      {s.ofstedSearchUrl && (
+        <a
+          href={s.ofstedSearchUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
+        >
+          <span className="font-semibold text-claude-700">
+            🎓 Compare School Performance — Ofsted ratings + GCSE results ↗
+          </span>
+          <span className="block text-slate-600">
+            Search by postcode for official Ofsted ratings, attainment data, and Progress 8 scores.
+          </span>
+        </a>
       )}
     </CardShell>
   );

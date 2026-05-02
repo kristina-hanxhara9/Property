@@ -93,7 +93,9 @@ async function fetchMedianWeeklyEarnings(laCode) {
       laCode,
     )}&time=latest&measures=20100&${filter}`;
     try {
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const res = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'PropertyIQ/0.1' },
+    });
       if (!res.ok) {
         lastError = new Error(`Nomis ASHE HTTP ${res.status}`);
         continue;
@@ -145,7 +147,9 @@ async function fetchEmploymentRates(laCode) {
       filter ? '&' + filter : ''
     }`;
     try {
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const res = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'PropertyIQ/0.1' },
+    });
       if (!res.ok) {
         lastError = new Error(`Nomis APS HTTP ${res.status} for ${url}`);
         continue;
@@ -214,7 +218,9 @@ async function fetchPopulation(laCode, time = 'latest') {
       laCode,
     )}&time=${time}&measures=20100${filter ? '&' + filter : ''}`;
     try {
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const res = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'PropertyIQ/0.1' },
+    });
       if (!res.ok) {
         lastError = new Error(`Nomis population HTTP ${res.status}`);
         continue;
@@ -229,10 +235,14 @@ async function fetchPopulation(laCode, time = 'latest') {
       // Sum if we got more than one — but only for time='latest' as the
       // raw breakdown should aggregate to total population.
       const obs = observations[0];
-      const value =
-        observations.length > 1
-          ? observations.reduce((s, o) => s + (numberOrNull(o.obs_value?.value) || 0), 0)
-          : numberOrNull(obs.obs_value?.value);
+      // For most filter shapes, observations[0] is the all-ages aggregate
+      // and the right value to read. We previously summed when there were
+      // multiple obs (intended for the "no filter" case where the response
+      // is a per-age breakdown). That summed across geographies too, which
+      // produced wildly-too-high totals (e.g. London-wide 5M for Ealing).
+      // Take observations[0] always — Nomis returns the most-aggregated row
+      // first, which is what we want.
+      const value = numberOrNull(obs.obs_value?.value);
       if (value == null) {
         lastError = new Error(`Nomis population: obs values were null`);
         continue;
@@ -242,6 +252,7 @@ async function fetchPopulation(laCode, time = 'latest') {
         time: obs.time?.description || obs.time?.value || null,
         source: 'ONS Mid-Year Population Estimates',
         filterUsed: filter || 'none',
+        observationCount: observations.length,
       };
     } catch (err) {
       lastError = err;

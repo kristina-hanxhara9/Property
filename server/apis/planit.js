@@ -14,15 +14,17 @@ export async function fetchPlanningApplications({ postcode, latitude, longitude,
 
   const url = new URL(BASE_URL);
   url.searchParams.set('pg_sz', String(limit));
-  url.searchParams.set('sort', '-start_date');
-  if (postcode) {
-    // PlanIt API uses 'pcode' (NOT 'postcode') and 'krad' for radius
-    url.searchParams.set('pcode', postcode);
-    url.searchParams.set('krad', '1.0');
-  } else {
+  // PlanIt's default sort with a spatial query is by proximity (closest
+  // first) — exactly what we want so the property's own applications and
+  // its immediate neighbours rank highest. We don't override `sort` here.
+  if (latitude != null && longitude != null) {
+    // Lat/lng + radius gives more precise proximity ranking than postcode.
     url.searchParams.set('lat', String(latitude));
     url.searchParams.set('lng', String(longitude));
-    url.searchParams.set('krad', '0.5');
+    url.searchParams.set('krad', '0.4');
+  } else if (postcode) {
+    url.searchParams.set('pcode', postcode);
+    url.searchParams.set('krad', '0.4');
   }
 
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
