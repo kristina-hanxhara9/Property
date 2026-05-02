@@ -51,15 +51,18 @@ export async function fetchNomisProfile(adminDistrictCode) {
         : null,
   };
 
-  // If everything failed, throw so the agent log shows the failure
-  // rather than silently returning a profile of nulls.
+  // Build a partial-failure summary so the user sees in one glance which
+  // datasets returned no data even when others succeeded.
+  const partialFailures = Object.entries(failures)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}: ${v}`);
+
+  // Throw only if EVERYTHING failed.
   const allFailed = !earningsVal && !empVal && !popLatest;
   if (allFailed) {
-    const summary = Object.entries(failures)
-      .filter(([, v]) => v)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join(' | ');
-    throw new Error(`Nomis returned no data: ${summary || 'no observations'}`);
+    throw new Error(
+      `Nomis returned no data: ${partialFailures.join(' | ') || 'no observations'}`,
+    );
   }
 
   return {
@@ -71,113 +74,176 @@ export async function fetchNomisProfile(adminDistrictCode) {
     populationGrowthTrend,
     populationGrowthPct,
     failures,
+    partialFailures,
   };
 }
 
 // ── Earnings (ASHE NM_30_1) ─────────────────────────────────────────────────
 //
-// Filters used:
-//   sex=7        — All employees
-//   item=2       — Median
-//   pay=1        — Gross weekly pay
-//   measures=20100  — Value (not coefficient of variation)
-//
 // Returns weekly £; we annualise by ×52.
 async function fetchMedianWeeklyEarnings(laCode) {
-  const url = `${BASE}/NM_30_1.data.json?geography=${encodeURIComponent(
-    laCode,
-  )}&time=latest&sex=7&item=2&pay=1&measures=20100`;
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`Nomis ASHE returned ${res.status}`);
-  const body = await res.json();
-  const obs = pickObservation(body);
-  if (!obs) return null;
-  const weekly = numberOrNull(obs.obs_value?.value);
-  if (weekly == null) return null;
-  return {
-    medianWeeklyGross: weekly,
-    medianAnnualGross: Math.round(weekly * 52),
-    time: obs.time?.description || obs.time?.value || null,
-    geography: obs.geography?.description || null,
-    source: 'ONS ASHE — residence-based, all employees, median gross weekly pay',
-  };
+  const attempts = [
+    'sex=7&item=2&pay=1', // All employees, median, gross weekly pay (current ASHE schema)
+    'sex=8&item=2&pay=1', // Sex=8 in some schema versions = all
+    'item=2&pay=1', // Drop sex filter, take whatever the dataset provides
+  ];
+  let lastError = null;
+  for (const filter of attempts) {
+    const url = `${BASE}/NM_30_1.data.json?geography=${encodeURIComponent(
+      laCode,
+    )}&time=latest&measures=20100&${filter}`;
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) {
+        lastError = new Error(`Nomis ASHE HTTP ${res.status}`);
+        continue;
+      }
+      const body = await res.json();
+      const obs = pickObservation(body);
+      const weekly = numberOrNull(obs?.obs_value?.value);
+      if (weekly == null) {
+        lastError = new Error(`Nomis ASHE: no value for filter "${filter}"`);
+        continue;
+      }
+      return {
+        medianWeeklyGross: weekly,
+        medianAnnualGross: Math.round(weekly * 52),
+        time: obs.time?.description || obs.time?.value || null,
+        geography: obs.geography?.description || null,
+        source: 'ONS ASHE — residence-based, median gross weekly pay',
+        filterUsed: filter,
+      };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error('Nomis ASHE: all fallback queries failed');
 }
 
 // ── Employment / unemployment rate (APS NM_17_1) ─────────────────────────────
 //
-// NM_17_1 is the Annual Population Survey, residence-based.
-// Variable codes (Nomis: cell):
-//   18    — Employment rate (aged 16-64)
-//   84    — Economic activity rate (aged 16-64)
-//   85    — Unemployment rate (aged 16+)
-//   45    — % all in employment who are - employees, etc.
-// measures=20599 returns the value.
-//
-// Different LAs have different cells available depending on sample size.
-// We try the documented codes and accept whatever comes back.
+// Tries multiple query shapes. NM_17_1 has been re-versioned on Nomis a
+// couple of times so different LAs / time periods may need different
+// dimension names.
 async function fetchEmploymentRates(laCode) {
-  const url = `${BASE}/NM_17_1.data.json?geography=${encodeURIComponent(
-    laCode,
-  )}&time=latest&cell=18,84,85&measures=20599`;
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`Nomis APS returned ${res.status}`);
-  const body = await res.json();
-  const observations = body?.obs || [];
+  const attempts = [
+    // Modern: cell parameter, well-known APS cells
+    `cell=18,84,85`,
+    // Older: variable parameter
+    `variable=18,84,85`,
+    // No filter — pull all cells, we filter client-side
+    ``,
+  ];
 
-  let employmentRate = null;
-  let unemploymentRate = null;
-  let economicActivityRate = null;
-  let time = null;
+  let lastError = null;
+  for (const filter of attempts) {
+    const url = `${BASE}/NM_17_1.data.json?geography=${encodeURIComponent(laCode)}&time=latest&measures=20599${
+      filter ? '&' + filter : ''
+    }`;
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) {
+        lastError = new Error(`Nomis APS HTTP ${res.status} for ${url}`);
+        continue;
+      }
+      const body = await res.json();
+      const observations = body?.obs || [];
+      if (observations.length === 0) {
+        lastError = new Error(`Nomis APS returned 0 obs for filter "${filter || 'none'}"`);
+        continue;
+      }
 
-  for (const o of observations) {
-    const cell = o.cell?.value ?? o.cell?.id ?? o.variable?.value;
-    const val = numberOrNull(o.obs_value?.value);
-    time = time || o.time?.description || o.time?.value || null;
-    if (cell == 18) employmentRate = val;
-    else if (cell == 85) unemploymentRate = val;
-    else if (cell == 84) economicActivityRate = val;
+      let employmentRate = null;
+      let unemploymentRate = null;
+      let economicActivityRate = null;
+      let time = null;
+
+      for (const o of observations) {
+        const cell = o.cell?.value ?? o.cell?.id ?? o.variable?.value ?? o.variable?.id;
+        const val = numberOrNull(o.obs_value?.value);
+        time = time || o.time?.description || o.time?.value || null;
+        if (cell == 18) employmentRate = val;
+        else if (cell == 85 || cell == 19) unemploymentRate = val;
+        else if (cell == 84) economicActivityRate = val;
+      }
+
+      if (employmentRate != null || unemploymentRate != null || economicActivityRate != null) {
+        return {
+          employmentRate,
+          unemploymentRate,
+          economicActivityRate,
+          time,
+          source: 'ONS Annual Population Survey — residence-based, aged 16-64',
+          observationCount: observations.length,
+          filterUsed: filter || 'none',
+        };
+      }
+      lastError = new Error(
+        `Nomis APS returned ${observations.length} obs for filter "${filter || 'none'}" but none matched cells 18/84/85`,
+      );
+    } catch (err) {
+      lastError = err;
+    }
   }
-
-  if (employmentRate == null && unemploymentRate == null && economicActivityRate == null) {
-    // Surface a clear error with the obs count rather than silently returning null
-    throw new Error(`Nomis APS returned ${observations.length} observations but none matched the expected cells (18/84/85). LA may have insufficient APS sample.`);
-  }
-  return {
-    employmentRate,
-    unemploymentRate,
-    economicActivityRate,
-    time,
-    source: 'ONS Annual Population Survey — residence-based, aged 16-64',
-    observationCount: observations.length,
-  };
+  throw lastError || new Error('Nomis APS: all fallback queries failed');
 }
 
 // ── Population (NM_2002_1) ──────────────────────────────────────────────────
 //
-// NM_2002_1 is mid-year population estimates by single year of age.
-// Filters: sex=0 (persons / all), age=0 (all ages), measures=20100 (value).
-//
-// `time` accepts: latest, latestMINUS1, latestMINUS5, or YYYY.
+// Mid-year population estimates. Multiple filter shapes have been used
+// over the years so we try in turn.
 async function fetchPopulation(laCode, time = 'latest') {
-  // Try a couple of filter shapes since Nomis APIs vary.
-  // Primary: sex=0 + age=0 (all persons, all ages)
-  // Fallback: c2021_age=0 (Census-aligned aggregations)
-  const url = `${BASE}/NM_2002_1.data.json?geography=${encodeURIComponent(
-    laCode,
-  )}&time=${time}&sex=0&age=0&measures=20100`;
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`Nomis population returned ${res.status}`);
-  const body = await res.json();
-  const observations = body?.obs || [];
-  const obs = observations[0];
-  if (!obs) {
-    throw new Error(`Nomis population returned 0 observations for ${laCode}/${time}`);
+  const attempts = [
+    // Modern: sex=0 + age=0 (all persons, all ages)
+    `sex=0&age=0`,
+    // Older API: gender=0 + age=0
+    `gender=0&age=0`,
+    // Census 2021-aligned: c2021_age=0
+    `sex=0&c2021_age=0`,
+    // No filter — pull full breakdown, sum client-side
+    ``,
+  ];
+
+  let lastError = null;
+  for (const filter of attempts) {
+    const url = `${BASE}/NM_2002_1.data.json?geography=${encodeURIComponent(
+      laCode,
+    )}&time=${time}&measures=20100${filter ? '&' + filter : ''}`;
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) {
+        lastError = new Error(`Nomis population HTTP ${res.status}`);
+        continue;
+      }
+      const body = await res.json();
+      const observations = body?.obs || [];
+      if (observations.length === 0) {
+        lastError = new Error(`Nomis population: 0 obs for filter "${filter || 'none'}"`);
+        continue;
+      }
+      // For the no-filter case there will be many obs (one per age/sex).
+      // Sum if we got more than one — but only for time='latest' as the
+      // raw breakdown should aggregate to total population.
+      const obs = observations[0];
+      const value =
+        observations.length > 1
+          ? observations.reduce((s, o) => s + (numberOrNull(o.obs_value?.value) || 0), 0)
+          : numberOrNull(obs.obs_value?.value);
+      if (value == null) {
+        lastError = new Error(`Nomis population: obs values were null`);
+        continue;
+      }
+      return {
+        value,
+        time: obs.time?.description || obs.time?.value || null,
+        source: 'ONS Mid-Year Population Estimates',
+        filterUsed: filter || 'none',
+      };
+    } catch (err) {
+      lastError = err;
+    }
   }
-  return {
-    value: numberOrNull(obs.obs_value?.value),
-    time: obs.time?.description || obs.time?.value || null,
-    source: 'ONS Mid-Year Population Estimates',
-  };
+  throw lastError || new Error(`Nomis population (${time}): all fallback queries failed`);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

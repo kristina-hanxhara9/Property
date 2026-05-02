@@ -29,31 +29,57 @@ export async function fetchPostcodeDemographics(postcode) {
     const body = JSON.parse(text);
     const attr = body?.data?.attributes || {};
     const rels = body?.data?.relationships || {};
+    const included = body?.included || [];
 
-    // findthatpostcode uses different IMD field names depending on which
-    // dataset version is included. Try every plausible name.
-    const imdDecile = pickFirstNumber(
+    // 1. Try direct attributes (older API shape)
+    let imdDecile = pickFirstNumber(
       attr.imd2019_decile,
       attr['imd2019_decile_(la_aware)'],
       attr.imd_2019_decile,
       attr.imd_decile,
       attr.imd2015_decile,
-      // English IMD lives under `imd_decile_2019` in some versions
       attr.imd_decile_2019,
       attr.imd_eng_2019_decile,
     );
-    const imdRank = pickFirstNumber(
+    let imdRank = pickFirstNumber(
       attr.imd2019_rank,
       attr.imd_2019_rank,
       attr.imd_rank,
       attr.imd_eng_2019_rank,
     );
-    const imdScore = pickFirstNumber(
+    let imdScore = pickFirstNumber(
       attr.imd2019_score,
       attr.imd_2019_score,
       attr.imd_score,
       attr.imd_eng_2019_score,
     );
+
+    // 2. Try JSON:API `relationships` + `included` (newer API shape).
+    // The IMD info is delivered as a related resource; find it by type.
+    if (imdDecile == null) {
+      const imdResource = included.find(
+        (i) =>
+          /imd/i.test(i.type || '') ||
+          /imd/i.test(i.id || '') ||
+          (i.attributes && /imd/i.test(JSON.stringify(i.attributes))),
+      );
+      if (imdResource) {
+        const a = imdResource.attributes || {};
+        imdDecile =
+          imdDecile ||
+          pickFirstNumber(a.decile, a.imd_decile, a.imd2019_decile, a.IMDDecil);
+        imdRank = imdRank || pickFirstNumber(a.rank, a.imd_rank, a.imd2019_rank, a.IMDRank);
+        imdScore = imdScore || pickFirstNumber(a.score, a.imd_score, a.imd2019_score, a.IMDScore);
+      }
+    }
+
+    // 3. Last resort — scan everything for any *decile / *rank field
+    if (imdDecile == null) {
+      const everyField = collectAllFields(body);
+      imdDecile = imdDecile || findByName(everyField, /imd.*decile|decile.*imd|^decile$/i);
+      imdRank = imdRank || findByName(everyField, /imd.*rank|rank.*imd|^rank$/i);
+      imdScore = imdScore || findByName(everyField, /imd.*score|score.*imd|^score$/i);
+    }
 
     return {
       postcode: attr.pcds || cleaned,
@@ -71,12 +97,39 @@ export async function fetchPostcodeDemographics(postcode) {
       ccg: attr.ccg || null,
       nuts: attr.nuts || null,
       raw: body,
-      // Surface what we got so the user / log can see field availability
-      _availableKeys: Object.keys(attr).filter((k) => /imd|deprivation/i.test(k)),
+      _availableKeys: [
+        ...Object.keys(attr).filter((k) => /imd|deprivation|decile|rank/i.test(k)),
+        ...included.map((i) => `included:${i.type || i.id}`),
+      ],
     };
   } catch {
     return null;
   }
+}
+
+function collectAllFields(obj, fields = {}, prefix = '') {
+  if (!obj || typeof obj !== 'object') return fields;
+  for (const [k, v] of Object.entries(obj)) {
+    const fullKey = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      collectAllFields(v, fields, fullKey);
+    } else if (Array.isArray(v)) {
+      v.forEach((item, i) => collectAllFields(item, fields, `${fullKey}[${i}]`));
+    } else {
+      fields[fullKey] = v;
+    }
+  }
+  return fields;
+}
+
+function findByName(fields, pattern) {
+  for (const [name, value] of Object.entries(fields)) {
+    if (pattern.test(name)) {
+      const n = numberOrNull(value);
+      if (n != null) return n;
+    }
+  }
+  return null;
 }
 
 function pickFirstNumber(...values) {

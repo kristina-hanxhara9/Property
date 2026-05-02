@@ -264,12 +264,25 @@ app.post('/api/property-check', async (req, res) => {
     () => fetchPlanningApplications({ postcode: postcodeStr, latitude, longitude, limit: 12 }),
   );
   const adminDistrictCode = geo.value?.codes?.admin_district || null;
-  const nomisPromise = runStep(
-    res,
-    'nomis',
-    'ONS Nomis — earnings, employment, population (free)',
-    () => fetchNomisProfile(adminDistrictCode),
-  );
+  const nomisPromise = (async () => {
+    const result = await runStep(
+      res,
+      'nomis',
+      'ONS Nomis — earnings, employment, population (free)',
+      () => fetchNomisProfile(adminDistrictCode),
+    );
+    // If Nomis succeeded but had partial failures, emit a follow-up step so
+    // the user sees exactly which sub-datasets came back empty.
+    if (result.ok && result.value?.partialFailures?.length) {
+      sseSend(res, 'step', {
+        name: 'nomis-partial',
+        label: `Nomis partial: ${result.value.partialFailures.join(' · ')}`,
+        status: 'failed',
+        error: 'Some Nomis datasets returned no data for this LA.',
+      });
+    }
+    return result;
+  })();
   const groundPromise = runStep(
     res,
     'bgs-ground',
