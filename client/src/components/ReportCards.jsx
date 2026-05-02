@@ -29,6 +29,10 @@ export function PropertyCards({ report }) {
 }
 
 export function CompanyCards({ report }) {
+  // Note: VatStatusCard is intentionally omitted — VAT data lives in the
+  // dedicated VatVerifyCard (manual + HMRC API) and VatLookupAgentCard
+  // (AI search) further down the page. The old static card was always
+  // showing "Unknown" since Companies House doesn't expose VAT numbers.
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <CompanyProfileCard report={report} />
@@ -37,7 +41,6 @@ export function CompanyCards({ report }) {
       <FinancialHealthCard report={report} />
       <SanctionsCard report={report} />
       <PropertyHoldingsCard report={report} />
-      <VatStatusCard report={report} />
     </div>
   );
 }
@@ -101,12 +104,19 @@ function PropertyHoldingsCard({ report }) {
   const ocodMatches = holdings?.ocod?.properties || [];
   const totalMatches = (holdings?.ccod?.matchCount || 0) + (holdings?.ocod?.matchCount || 0);
 
+  // available=true means the dataset was fetched successfully (even if 0 matches).
+  // available=false means the fetch failed.
+  const ccodAvailable = holdings?.ccod?.available;
+  const ocodAvailable = holdings?.ocod?.available;
+  const anyDatasetFetched = ccodAvailable || ocodAvailable;
+  const allDatasetsFailed = holdings && !ccodAvailable && !ocodAvailable;
+
   return (
     <CardShell
       title="UK property holdings (live data)"
       source="Source: Land Registry CCOD + OCOD bulk datasets"
     >
-      {holdings && totalMatches > 0 ? (
+      {totalMatches > 0 ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-700">{totalMatches} title(s) registered to this company</span>
@@ -129,18 +139,27 @@ function PropertyHoldingsCard({ report }) {
             />
           )}
         </div>
-      ) : holdings && totalMatches === 0 ? (
+      ) : anyDatasetFetched ? (
         <p className="text-sm text-slate-600">
-          No UK title found in the latest CCOD ({holdings.ccod?.month || 'n/a'}) or OCOD (
-          {holdings.ocod?.month || 'n/a'}) datasets for this company number.
+          No UK title found in the latest{' '}
+          {ccodAvailable && `CCOD (${safeText(holdings.ccod?.month).replace('_', '/')})`}
+          {ccodAvailable && ocodAvailable && ' or '}
+          {ocodAvailable && `OCOD (${safeText(holdings.ocod?.month).replace('_', '/')})`}{' '}
+          datasets for this company number.
         </p>
       ) : (
         <div className="rounded-xl border border-warn-bg bg-warn-bg/30 p-3 text-xs">
           <p className="font-semibold text-warn-text">Could not auto-fetch CCOD/OCOD</p>
+          {(holdings?.ccod?.error || holdings?.ocod?.error || error) && (
+            <p className="mt-1 text-slate-700">
+              CCOD: {safeText(holdings?.ccod?.error)}
+              {holdings?.ccod?.error && holdings?.ocod?.error ? ' · OCOD: ' : ''}
+              {holdings?.ocod?.error ? safeText(holdings?.ocod?.error) : ''}
+            </p>
+          )}
           <p className="mt-1 text-slate-700">
-            {safeText(
-              error || 'The Land Registry download URL likely requires session/CSRF tokens. Use the manual link below.',
-            )}
+            The Land Registry download endpoint likely requires session/CSRF tokens or has changed
+            URL pattern. Use the manual link below.
           </p>
         </div>
       )}

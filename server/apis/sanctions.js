@@ -112,16 +112,17 @@ async function queryOfsi(name) {
   const needle = normalise(name);
   if (!needle) return { queryName: name, matches: [], verdict: 'No matches', source: 'HM Treasury OFSI' };
 
-  // Match against any "Name 1..6" or alias in the OFSI list
-  const matches = list.filter((row) => {
-    return row._allNames.some((n) => {
-      if (!n) return false;
-      const haystack = normalise(n);
-      // Exact-or-contains match in either direction (sanctions list often
-      // has "FIRSTNAME SURNAME" while we send "Surname Firstname")
-      return haystack.includes(needle) || needle.includes(haystack);
-    });
-  });
+  const needleTokens = tokenise(needle);
+  // Single-word queries (e.g. "BARRATT") would match every sanctioned
+  // entity that happens to contain that token — a flood of false positives.
+  // Require at least 2 significant tokens for any fuzzy matching.
+  if (needleTokens.length < 2) {
+    return strictMatchOnly(list, needle, name);
+  }
+
+  const matches = list.filter((row) =>
+    row._allNames.some((n) => isMatch(needle, needleTokens, n)),
+  );
 
   return {
     queryName: name,
@@ -137,6 +138,58 @@ async function queryOfsi(name) {
     source: `HM Treasury OFSI Consolidated List (${list.length} entries)`,
     listUpdated: ofsiCacheTime ? new Date(ofsiCacheTime).toISOString() : null,
   };
+}
+
+function strictMatchOnly(list, needle, originalName) {
+  // Only exact (post-normalisation) match — used for single-token queries.
+  const matches = list.filter((row) =>
+    row._allNames.some((n) => normalise(n) === needle),
+  );
+  return {
+    queryName: originalName,
+    matches: matches.slice(0, 5).map((m) => ({
+      groupId: m.groupId,
+      regime: m.regime,
+      designation: m.designation,
+      lastUpdated: m.lastUpdated,
+      names: m._allNames.filter(Boolean),
+    })),
+    matchesTotal: matches.length,
+    verdict: matches.length === 0 ? 'No matches' : 'Possible UK sanctions match (exact name)',
+    source: `HM Treasury OFSI Consolidated List (${list.length} entries) — strict exact-match`,
+    listUpdated: ofsiCacheTime ? new Date(ofsiCacheTime).toISOString() : null,
+  };
+}
+
+// Match logic:
+//   1. Exact match after normalisation → match.
+//   2. Otherwise: every needle token must be present as a whole word in
+//      the haystack, AND the haystack must not have too many extra
+//      significant tokens beyond the needle (suggests it's a different
+//      entity that just happens to share some words).
+function isMatch(needle, needleTokens, haystackName) {
+  if (!haystackName) return false;
+  const haystack = normalise(haystackName);
+  if (haystack === needle) return true;
+  // Don't match if either side is significantly longer than the other —
+  // "Barratt Developments Limited" (3 tokens) vs a sanctioned
+  // "Barratt Africa Conservation Initiative" (4 tokens) is NOT a match.
+  const haystackTokens = tokenise(haystack);
+  if (needleTokens.length === 0 || haystackTokens.length === 0) return false;
+
+  // Every needle token must appear as a whole word in haystack
+  const allTokensPresent = needleTokens.every((t) => haystackTokens.includes(t));
+  if (!allTokensPresent) return false;
+
+  // Reject if haystack has many extra significant tokens
+  const extras = haystackTokens.filter((t) => !needleTokens.includes(t)).length;
+  return extras <= 1;
+}
+
+function tokenise(s) {
+  return String(s)
+    .split(/\s+/)
+    .filter((t) => t.length >= 3); // Drop trivial tokens like "OF", "THE"
 }
 
 async function loadOfsi() {

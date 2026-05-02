@@ -535,10 +535,15 @@ app.post('/api/company-check', async (req, res) => {
       return;
     }
     searchResults = search.value;
-    resolvedNumber = search.value[0].companyNumber;
+    // Pick the most relevant match — not just the first one returned by
+    // Companies House. For "Barratt Developments PLC" search, the API
+    // returns recent newly-incorporated subsidiaries first, but the user
+    // almost certainly wants the established PLC parent.
+    const ranked = rankCompanyMatches(search.value, companyName);
+    resolvedNumber = ranked[0].companyNumber;
     sseSend(res, 'company-matched', {
-      matched: search.value[0],
-      otherCandidates: search.value.slice(1, 5),
+      matched: ranked[0],
+      otherCandidates: ranked.slice(1, 5),
     });
   }
 
@@ -1029,6 +1034,56 @@ ${JSON.stringify(reportContext || {}, null, 2)}`;
   }
   res.end();
 });
+
+// Score Companies House search results to pick the most likely intended
+// match for the user's query. Without scoring, the API returns recent or
+// alphabetical matches first, which often surfaces tiny new subsidiaries
+// instead of the well-known parent company the user typed.
+function rankCompanyMatches(results, query) {
+  const q = String(query || '').toUpperCase().trim();
+  const qNoPunc = q.replace(/[^A-Z0-9 ]/g, '');
+  const wantsPlc = /\bP\.?L\.?C\.?\b|PUBLIC LIMITED/i.test(query);
+
+  const scored = results.map((r) => {
+    const name = String(r.title || '').toUpperCase();
+    const nameNoPunc = name.replace(/[^A-Z0-9 ]/g, '');
+    let score = 0;
+
+    // Exact match (after normalisation) wins
+    if (nameNoPunc === qNoPunc) score += 100;
+    // Same name with/without "PLC" / "LIMITED" suffix
+    if (
+      nameNoPunc.replace(/\s+(PLC|LIMITED|LTD|LLP)\s*$/g, '') ===
+      qNoPunc.replace(/\s+(PLC|LIMITED|LTD|LLP)\s*$/g, '')
+    ) {
+      score += 60;
+    }
+
+    // Active companies preferred over dissolved/dormant
+    if (r.status === 'active') score += 30;
+    if (/dissolved|liquidation/.test(r.status || '')) score -= 30;
+
+    // PLC vs LTD matching
+    if (wantsPlc && / PLC$/.test(name)) score += 40;
+    if (wantsPlc && /LIMITED$|LTD$/.test(name)) score -= 10;
+    if (!wantsPlc && /LIMITED$|LTD$/.test(name)) score += 5;
+
+    // Established companies preferred (more likely the famous one)
+    if (r.incorporatedDate) {
+      const ageYears =
+        (Date.now() - new Date(r.incorporatedDate).getTime()) / (1000 * 60 * 60 * 24 * 365);
+      if (ageYears > 25) score += 25;
+      else if (ageYears > 10) score += 15;
+      else if (ageYears > 5) score += 5;
+      else if (ageYears < 2) score -= 10; // Recent subsidiaries
+    }
+
+    return { r, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.r);
+}
 
 function tryParseJson(text) {
   if (!text) return null;
