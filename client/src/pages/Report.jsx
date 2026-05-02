@@ -9,6 +9,11 @@ import ActionButtons from '../components/ActionButtons.jsx';
 import ChatPanel from '../components/ChatPanel.jsx';
 import MarketComparables from '../components/MarketComparables.jsx';
 import RawDataSection from '../components/RawDataSection.jsx';
+import {
+  AvmAgentCard,
+  ConstructionCostAgentCard,
+  AdverseMediaAgentCard,
+} from '../components/AiAgentCards.jsx';
 import { apiUrl } from '../lib/api.js';
 
 export default function Report({
@@ -115,7 +120,15 @@ export default function Report({
             <CompanyCards report={report} />
           )}
 
-          {reportType === 'property' && <MarketComparables report={report} />}
+          {reportType === 'property' && (
+            <>
+              <MarketComparables report={report} />
+              <AvmAgentCard report={report} />
+              <ConstructionCostAgentCard report={report} />
+            </>
+          )}
+
+          {reportType === 'company' && <AdverseMediaAgentCard report={report} />}
 
           <FlagsList flags={report.flags} />
 

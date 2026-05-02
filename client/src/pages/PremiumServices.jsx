@@ -52,6 +52,7 @@ const CATEGORIES = [
         unlocks:
           '£/sqft averages by postcode · asking rent + sold price comparables · rental yields · supply/demand index · planning history overlays',
         link: 'https://propertydata.co.uk/api',
+        aiAlternative: 'Market Comparables agent + AVM agent (built-in, ~$0.05–0.15/run)',
       },
       {
         name: 'Rightmove Plus / Rightmove Data Services',
@@ -89,6 +90,8 @@ const CATEGORIES = [
         unlocks:
           'Statistical sale + rental valuation per property · confidence band · forecast 12-month change · used by major UK lenders',
         link: 'https://www.hometrack.com/',
+        aiAlternative:
+          'AVM Agent (built-in, ~$0.05–0.15/run). NOT lender-grade — for indicative valuation only.',
       },
       {
         name: 'PropertyData AVM',
@@ -117,6 +120,8 @@ const CATEGORIES = [
         unlocks:
           'Comprehensive commercial property database — rents, lease terms, tenant identities, sale comparables, yields by sector',
         link: 'https://www.costar.com/',
+        aiAlternative:
+          'Market Comparables agent can find Rightmove Commercial / Realla listings for asking-rent evidence (limited but free vs $0.05–0.15/run).',
       },
       {
         name: 'Realla',
@@ -145,6 +150,8 @@ const CATEGORIES = [
         unlocks:
           'Building Cost Information Service — £/sqft new-build benchmarks by region and asset class · refurb costs · maintenance lifetimes',
         link: 'https://www.rics.org/uk/products/data-products/isurv-bcis/',
+        aiAlternative:
+          'Construction Cost agent (built-in, ~$0.05–0.15/run). High-level only — not for tendered cost planning.',
       },
       {
         name: 'AECOM / Mott MacDonald cost data',
@@ -204,6 +211,8 @@ const CATEGORIES = [
         unlocks:
           'Private company financials · funding rounds · high-growth tracking · investor relationships',
         link: 'https://www.beauhurst.com/',
+        aiAlternative:
+          'Adverse Media agent (built-in, ~$0.10–0.20/run) covers the news / scandal / litigation side. Doesn\'t cover funding rounds — Beauhurst still wins for that.',
       },
     ],
   },
@@ -316,6 +325,14 @@ export default function PremiumServices({ onBack }) {
                   </div>
                   <p className="text-xs text-slate-500">via {item.provider}</p>
                   <p className="text-sm text-slate-700">{item.unlocks}</p>
+                  {item.aiAlternative && (
+                    <div className="mt-1 rounded-lg border border-claude-200 bg-claude-50 p-2 text-xs">
+                      <span className="font-bold uppercase tracking-wider text-claude-700">
+                        🤖 Free AI alternative in PropertyIQ:
+                      </span>{' '}
+                      <span className="text-ink">{item.aiAlternative}</span>
+                    </div>
+                  )}
                   {item.link && (
                     <a
                       href={item.link}

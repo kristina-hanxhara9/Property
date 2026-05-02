@@ -44,6 +44,14 @@ import {
   COMPARABLES_SYSTEM_PROMPT,
   buildComparablesUserMessage,
 } from './prompts/comparablesAgent.js';
+import {
+  AVM_SYSTEM_PROMPT,
+  buildAvmUserMessage,
+  ADVERSE_MEDIA_SYSTEM_PROMPT,
+  buildAdverseMediaUserMessage,
+  CONSTRUCTION_COST_SYSTEM_PROMPT,
+  buildConstructionCostUserMessage,
+} from './prompts/aiAgents.js';
 
 const PORT = Number(process.env.PORT || 3001);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:5173';
@@ -806,6 +814,127 @@ app.post('/api/export-docx', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err?.message || 'DOCX generation failed.' });
   }
+});
+
+// Generic helper for the on-demand Claude web-search agents (AVM,
+// adverse media, construction cost). Each endpoint just wires its prompt
+// + body shape to this runner.
+async function runWebSearchAgent(res, { systemPrompt, userMessage, allowedDomains, maxUses, eventName, label }) {
+  if (!ANTHROPIC_API_KEY) {
+    res.status(503).json({
+      error: `${label} requires ANTHROPIC_API_KEY to be configured on the server.`,
+    });
+    return;
+  }
+  sseHeaders(res);
+  sseSend(res, 'step', { name: 'agent', label, status: 'running' });
+
+  let collected = '';
+  try {
+    const stream = anthropic.messages.stream({
+      model: MODEL_COMPARABLES,
+      max_tokens: 4000,
+      system: systemPrompt,
+      tools: [
+        {
+          type: 'web_search_20260209',
+          name: 'web_search',
+          max_uses: maxUses || 6,
+          allowed_domains: allowedDomains,
+        },
+      ],
+      messages: [{ role: 'user', content: userMessage }],
+    });
+    stream.on('text', (delta) => {
+      collected += delta;
+      sseSend(res, 'delta', { text: delta });
+    });
+    const finalMessage = await stream.finalMessage();
+    const fullText = finalMessage.content
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+    const parsed = tryParseJson(fullText) || tryParseJson(collected);
+    sseSend(res, 'step', { name: 'agent', label, status: 'complete' });
+    if (parsed) {
+      sseSend(res, eventName, parsed);
+    } else {
+      sseSend(res, 'error', { message: 'Agent returned a response that could not be parsed as JSON.', raw: fullText.slice(0, 4000) });
+    }
+  } catch (err) {
+    sseSend(res, 'step', { name: 'agent', label, status: 'failed', error: err?.message });
+    sseSend(res, 'error', { message: err?.message || 'Agent failed.' });
+  }
+  res.end();
+}
+
+app.post('/api/avm', async (req, res) => {
+  const { address, postcode, propertyType, bedrooms, lastSalePrice, lastSaleDate, floorAreaSqM } = req.body || {};
+  if (!postcode) {
+    res.status(400).json({ error: 'postcode required' });
+    return;
+  }
+  await runWebSearchAgent(res, {
+    systemPrompt: AVM_SYSTEM_PROMPT,
+    userMessage: buildAvmUserMessage({ address, postcode, propertyType, bedrooms, lastSalePrice, lastSaleDate, floorAreaSqM }),
+    allowedDomains: ['rightmove.co.uk', 'zoopla.co.uk', 'onthemarket.com'],
+    eventName: 'avm',
+    label: 'AVM / Sale valuation agent — Claude + web search (Rightmove/Zoopla/OnTheMarket)',
+  });
+});
+
+app.post('/api/adverse-media', async (req, res) => {
+  const { companyName, companyNumber, directors } = req.body || {};
+  if (!companyName) {
+    res.status(400).json({ error: 'companyName required' });
+    return;
+  }
+  await runWebSearchAgent(res, {
+    systemPrompt: ADVERSE_MEDIA_SYSTEM_PROMPT,
+    userMessage: buildAdverseMediaUserMessage({ companyName, companyNumber, directors }),
+    allowedDomains: [
+      'ft.com',
+      'theguardian.com',
+      'thetimes.co.uk',
+      'telegraph.co.uk',
+      'bbc.co.uk',
+      'cityam.com',
+      'propertyweek.com',
+      'fnlondon.com',
+      'reuters.com',
+      'bloomberg.com',
+      'gov.uk',
+    ],
+    maxUses: 8,
+    eventName: 'adverse-media',
+    label: 'Adverse media agent — Claude + web search (FT/Guardian/BBC/Property Week/etc.)',
+  });
+});
+
+app.post('/api/construction-cost', async (req, res) => {
+  const { address, postcode, localAuthority, region, scope } = req.body || {};
+  if (!postcode) {
+    res.status(400).json({ error: 'postcode required' });
+    return;
+  }
+  await runWebSearchAgent(res, {
+    systemPrompt: CONSTRUCTION_COST_SYSTEM_PROMPT,
+    userMessage: buildConstructionCostUserMessage({ address, postcode, localAuthority, region, scope }),
+    allowedDomains: [
+      'rics.org',
+      'bcis.co.uk',
+      'aecom.com',
+      'mottmac.com',
+      'propertyweek.com',
+      'constructionnews.co.uk',
+      'building.co.uk',
+      'gov.uk',
+      'ons.gov.uk',
+    ],
+    maxUses: 6,
+    eventName: 'construction-cost',
+    label: 'Construction cost agent — Claude + web search (RICS BCIS / AECOM / construction press)',
+  });
 });
 
 app.post('/api/chat', async (req, res) => {

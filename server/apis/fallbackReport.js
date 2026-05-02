@@ -593,6 +593,10 @@ function buildMarketContext({ postcodeData, lpaName, imd, onsRental, nomis }) {
     unemploymentRate = nomis.employment.unemploymentRate;
     economicActivityRate = nomis.employment.economicActivityRate;
     employmentTime = nomis.employment.time;
+  } else if (nomis?.failures?.employment) {
+    // Nomis APS often has no data for the smaller / newly-reorganised LAs.
+    // Be honest about it and point users at the ONS Area Profile instead.
+    employmentRate = 'Not in Nomis APS for this LA — see ONS area profile';
   }
 
   // Population trend from two ONS mid-year estimates
