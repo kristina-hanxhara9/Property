@@ -10,41 +10,61 @@ export async function fetchFoodHygieneRatings({ postcode, latitude, longitude, r
     throw new Error('postcode or coordinates required');
   }
 
-  const url = new URL(`${BASE}/Establishments`);
-  if (latitude != null && longitude != null) {
-    url.searchParams.set('latitude', String(latitude));
-    url.searchParams.set('longitude', String(longitude));
-    url.searchParams.set('maxDistanceLimit', String(radiusMiles));
-  }
-  if (postcode) url.searchParams.set('address', postcode);
-  url.searchParams.set('pageSize', '50');
-  url.searchParams.set('pageNumber', '1');
+  // FSA does not accept BOTH address and lat/lng — choose one. lat/lng
+  // is more accurate so prefer that.
+  const buildUrl = ({ useCoords }) => {
+    const u = new URL(`${BASE}/Establishments`);
+    if (useCoords && latitude != null && longitude != null) {
+      u.searchParams.set('latitude', String(latitude));
+      u.searchParams.set('longitude', String(longitude));
+      u.searchParams.set('maxDistanceLimit', String(radiusMiles));
+    } else if (postcode) {
+      u.searchParams.set('address', postcode);
+    }
+    u.searchParams.set('pageSize', '50');
+    u.searchParams.set('pageNumber', '1');
+    return u;
+  };
 
-  // FSA API requires the version header (currently 2) and likes a UA.
-  // Try v2 first, fall back to v1 if the response is empty / errors.
-  const tryFetch = async (apiVersion) => {
+  const tryFetch = async (apiVersion, url) => {
     const res = await fetch(url, {
       headers: {
         Accept: 'application/json',
         'x-api-version': apiVersion,
-        'User-Agent': 'PropertyIQ/0.1',
+        'User-Agent':
+          'Mozilla/5.0 (compatible; PropertyIQ/0.1; +https://github.com/kristina-hanxhara9/Property)',
       },
     });
-    if (!res.ok) throw new Error(`FSA API ${apiVersion} returned ${res.status}`);
+    if (!res.ok) throw new Error(`FSA API v${apiVersion} returned ${res.status}`);
     return await res.json();
   };
 
-  let body;
-  try {
-    body = await tryFetch('2');
-  } catch (err) {
+  // Try, in order: v2+coords, v2+postcode, v1+coords, v1+postcode.
+  const attempts = [
+    { version: '2', useCoords: true },
+    { version: '2', useCoords: false },
+    { version: '1', useCoords: true },
+    { version: '1', useCoords: false },
+  ];
+
+  let body = null;
+  let lastError = null;
+  let lastUrl = null;
+  for (const a of attempts) {
+    const url = buildUrl({ useCoords: a.useCoords });
+    lastUrl = url.toString();
     try {
-      body = await tryFetch('1');
-    } catch {
-      throw err;
+      body = await tryFetch(a.version, url);
+      if ((body?.establishments || []).length > 0) break;
+    } catch (err) {
+      lastError = err;
     }
   }
-  const establishments = body?.establishments || [];
+
+  if (!body && lastError) {
+    throw new Error(`${lastError.message} (last URL: ${lastUrl})`);
+  }
+  const establishments = (body?.establishments) || [];
 
   const ratingCounts = {};
   for (const e of establishments) {

@@ -146,18 +146,19 @@ async function fetchEmploymentRates(laCode) {
     const url = `${BASE}/${dataset}.data.json?geography=${encodeURIComponent(laCode)}&${timeParam}&measures=20599${
       filter ? '&' + filter : ''
     }`;
+    const shortUrl = url.replace('https://www.nomisweb.co.uk/api/v01/dataset/', '');
     try {
       const res = await fetch(url, {
-      headers: { Accept: 'application/json', 'User-Agent': 'PropertyIQ/0.1' },
-    });
+        headers: { Accept: 'application/json', 'User-Agent': 'PropertyIQ/0.1' },
+      });
       if (!res.ok) {
-        lastError = new Error(`Nomis APS HTTP ${res.status} for ${url}`);
+        lastError = new Error(`${shortUrl} → HTTP ${res.status}`);
         continue;
       }
       const body = await res.json();
       const observations = body?.obs || [];
       if (observations.length === 0) {
-        lastError = new Error(`Nomis APS returned 0 obs for filter "${filter || 'none'}"`);
+        lastError = new Error(`${shortUrl} → 0 observations`);
         continue;
       }
 
@@ -187,7 +188,7 @@ async function fetchEmploymentRates(laCode) {
         };
       }
       lastError = new Error(
-        `Nomis ${dataset} returned ${observations.length} obs (${timeParam}, ${filter || 'no filter'}) but none matched expected cells`,
+        `${shortUrl} → ${observations.length} obs but no expected cells`,
       );
     } catch (err) {
       lastError = err;
