@@ -35,8 +35,88 @@ export function CompanyCards({ report }) {
       <OwnershipStructureCard report={report} />
       <DirectorsCard report={report} />
       <FinancialHealthCard report={report} />
+      <SanctionsCard report={report} />
+      <PropertyHoldingsCard report={report} />
       <VatStatusCard report={report} />
     </div>
+  );
+}
+
+function SanctionsCard({ report }) {
+  const s = report.sanctions;
+  if (!s) return null;
+  const flagged = s.flagged || [];
+  const tone = flagged.length > 0 ? 'crit' : 'ok';
+  return (
+    <CardShell title="Sanctions, PEP & watchlist screening" source="Source: OpenSanctions + HM Treasury OFSI">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-slate-500">{s.checked || 0} entities checked</span>
+        <span className={`pill-${tone}`}>
+          <DotIcon tone={tone} />
+          {flagged.length === 0 ? 'No matches' : `${flagged.length} flagged`}
+        </span>
+      </div>
+
+      {flagged.length > 0 && (
+        <div className="space-y-2 border-t border-cream-200 pt-3">
+          {flagged.map((f, i) => (
+            <div key={i} className="rounded-xl bg-crit-bg/40 p-3 text-sm">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="font-semibold text-ink">{safeText(f.name)}</p>
+                <span className="pill-crit">{safeText(f.role)}</span>
+              </div>
+              {f.openSanctions?.verdict && (
+                <p className="mt-1 text-xs text-slate-700">
+                  <span className="font-semibold">OpenSanctions:</span>{' '}
+                  {safeText(f.openSanctions.verdict)} ({f.openSanctions.matchesTotal || 0} matches)
+                </p>
+              )}
+              {f.ofsi?.verdict && (
+                <p className="mt-1 text-xs text-slate-700">
+                  <span className="font-semibold">UK OFSI list:</span>{' '}
+                  {safeText(f.ofsi.verdict)} ({f.ofsi.matchesTotal || 0} matches)
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {s.results && s.results.length > 0 && flagged.length === 0 && (
+        <div className="border-t border-cream-200 pt-3 text-xs text-slate-500">
+          All {s.results.length} entities cleared against international sanctions, PEP and
+          watchlist databases. Verify against original sources before signing.
+        </div>
+      )}
+    </CardShell>
+  );
+}
+
+function PropertyHoldingsCard({ report }) {
+  const links = report.propertyHoldingsLinks || [];
+  if (links.length === 0) return null;
+  return (
+    <CardShell title="UK property holdings & filings" source="Source: Land Registry CCOD/OCOD + Companies House">
+      <p className="text-xs text-slate-600">
+        UK property owned by this company can be cross-referenced against the Land Registry's free
+        monthly bulk datasets. Search the CSV for the company's registered number to list every
+        title held.
+      </p>
+      <div className="space-y-1.5">
+        {links.map((l) => (
+          <a
+            key={l.url}
+            href={l.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
+          >
+            <span className="font-semibold text-claude-700">📁 {safeText(l.name)} ↗</span>
+            <span className="block text-slate-600">{safeText(l.note)}</span>
+          </a>
+        ))}
+      </div>
+    </CardShell>
   );
 }
 

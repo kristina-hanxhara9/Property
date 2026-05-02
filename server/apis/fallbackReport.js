@@ -872,21 +872,73 @@ export function buildCompanyFallbackReport({ companyInput, rawData }) {
       vatAddress: null,
     },
 
-    flags,
+    sanctions: rawData?.sanctions || null,
+    propertyHoldingsLinks: buildPropertyHoldingsLinks(profile.company_number, profile.company_name),
 
-    keyRisks: pickKeyItems(flags, ['critical', 'warning'], 3),
-    keyPositives: pickKeyItems(flags, ['ok'], 3),
+    flags: addSanctionsFlags(flags, rawData?.sanctions),
+
+    keyRisks: pickKeyItems(addSanctionsFlags(flags, rawData?.sanctions), ['critical', 'warning'], 3),
+    keyPositives: pickKeyItems(addSanctionsFlags(flags, rawData?.sanctions), ['ok'], 3),
 
     aiSummary: buildCompanySummary({ profile, status, tradingAge, outstanding, insolvencyCases, psc, riskLevel }),
 
     recommendedDueDiligence: buildCompanyNextSteps({ outstanding, insolvencyCases, psc, status }),
 
     dataQuality: {
-      apisQueried: 6,
-      apisSuccessful: rawData?.errors?.length ? 6 - rawData.errors.length : 6,
+      apisQueried: 7,
+      apisSuccessful: rawData?.errors?.length ? 7 - rawData.errors.length : 7,
       dataCompleteness: psc.length > 0 && officers.length > 0 ? 'Medium' : 'Low',
     },
   };
+}
+
+function addSanctionsFlags(existingFlags, sanctions) {
+  if (!sanctions?.flagged?.length) return existingFlags;
+  const sanctionsFlags = sanctions.flagged.map((f) => {
+    const isSanctionsHit =
+      f.openSanctions?.matches?.some((m) => m.sanctioned) ||
+      (f.ofsi?.matchesTotal || 0) > 0;
+    return {
+      severity: isSanctionsHit ? 'critical' : 'warning',
+      category: 'compliance',
+      title: isSanctionsHit
+        ? `${f.role} "${f.name}" — possible sanctions match`
+        : `${f.role} "${f.name}" — possible PEP / watchlist match`,
+      detail: [
+        f.openSanctions?.verdict || '',
+        f.ofsi?.verdict || '',
+        'Verify against original lists before proceeding.',
+      ]
+        .filter(Boolean)
+        .join('. '),
+    };
+  });
+  return [...sanctionsFlags, ...existingFlags];
+}
+
+function buildPropertyHoldingsLinks(companyNumber, companyName) {
+  return [
+    {
+      name: 'Land Registry CCOD — UK property owned by UK companies',
+      url: 'https://use-land-property-data.service.gov.uk/datasets/ccod',
+      note:
+        companyNumber
+          ? `Free monthly CSV of every UK property held by a UK-registered company. Search the file for company number ${companyNumber}.`
+          : 'Free monthly CSV listing every UK property held by a UK-registered company.',
+    },
+    {
+      name: 'Land Registry OCOD — UK property owned by overseas companies',
+      url: 'https://use-land-property-data.service.gov.uk/datasets/ocod',
+      note: 'Free monthly CSV listing every UK property held by an overseas-registered company. Useful for offshore-structure analysis.',
+    },
+    {
+      name: 'Companies House register search',
+      url: companyName
+        ? `https://find-and-update.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(companyName)}`
+        : 'https://find-and-update.company-information.service.gov.uk/',
+      note: 'Drill into filing history, charges register and document images directly.',
+    },
+  ];
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

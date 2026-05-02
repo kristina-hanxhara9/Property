@@ -9,6 +9,7 @@ import { fetchPricePaidByPostcode, summarisePriceHistory } from './apis/landRegi
 import { fetchPlanningConstraints } from './apis/planningData.js';
 import { fetchFloodRisk } from './apis/floodRisk.js';
 import { searchCompanies, fetchCompanyBundle } from './apis/companiesHouse.js';
+import { checkSanctions } from './apis/sanctions.js';
 import { fetchEpcByPostcode, pickBestEpc } from './apis/epc.js';
 import { fetchPlanningApplications } from './apis/planit.js';
 import { buildPropertyDocx, buildCompanyDocx } from './apis/docxExport.js';
@@ -555,13 +556,57 @@ app.post('/api/company-check', async (req, res) => {
     },
   });
 
-  const apisQueried = 6;
-  const apisSuccessful = apisQueried - apisFailed.length;
+  // Run sanctions / PEP / watchlist checks on the company itself and each
+  // PSC + officer in parallel. All free, no API keys.
+  const sanctionsTargets = [
+    { name: bundle.profile?.company_name, schema: 'Company', role: 'Company' },
+    ...(bundle.psc?.items || []).map((p) => ({
+      name: p.name,
+      schema: p.kind?.includes('individual') ? 'Person' : 'Company',
+      role: 'PSC',
+    })),
+    ...(bundle.officers?.items || [])
+      .filter((o) => !o.resigned_on)
+      .map((o) => ({ name: o.name, schema: 'Person', role: 'Director' })),
+  ].filter((t) => t.name);
+
+  const sanctionsStep = await runStep(
+    res,
+    'sanctions',
+    `Sanctions / PEP — OpenSanctions + HM Treasury OFSI (free, ${sanctionsTargets.length} entities)`,
+    async () => {
+      const results = await Promise.all(
+        sanctionsTargets.slice(0, 12).map(async (t) => {
+          try {
+            const result = await checkSanctions(t.name, { schema: t.schema });
+            return { ...t, ...result };
+          } catch (err) {
+            return { ...t, error: err.message };
+          }
+        }),
+      );
+      return {
+        checked: results.length,
+        flagged: results.filter(
+          (r) =>
+            (r.openSanctions?.highConfidenceMatches || 0) > 0 ||
+            (r.ofsi?.matchesTotal || 0) > 0,
+        ),
+        results,
+      };
+    },
+  );
+  const apisFailedExtra = sanctionsStep.ok ? [] : ['sanctions'];
+  const sanctionsResult = sanctionsStep.value || null;
+
+  const apisQueried = 7;
+  const apisSuccessful = apisQueried - apisFailed.length - apisFailedExtra.length;
 
   const companyRawData = {
     searchResults,
     ...bundle,
-    meta: { apisQueried, apisSuccessful, apisFailed },
+    sanctions: sanctionsResult,
+    meta: { apisQueried, apisSuccessful, apisFailed: [...apisFailed, ...apisFailedExtra] },
   };
 
   sseSend(res, 'raw-data', { rawData: companyRawData });
