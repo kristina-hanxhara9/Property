@@ -57,7 +57,7 @@ function extractLabel(field) {
   return null;
 }
 
-export function summarisePriceHistory(transactions) {
+export function summarisePriceHistory(transactions, { epcMatch } = {}) {
   if (!transactions || transactions.length === 0) {
     return {
       lastSalePrice: null,
@@ -65,6 +65,9 @@ export function summarisePriceHistory(transactions) {
       growth1yr: null,
       growth5yr: null,
       growthAllTime: null,
+      pricePerSqFt: null,
+      pricePerSqM: null,
+      floorAreaSqM: null,
     };
   }
 
@@ -108,6 +111,15 @@ export function summarisePriceHistory(transactions) {
   const ref5 = findInWindow(5, 3.5, 7);        // 3.5-7 years
   const ref10 = findInWindow(10, 8, 13);       // 8-13 years
 
+  // £/sqft (and £/sqm) using EPC total_floor_area for the matched property
+  const floorAreaSqM = epcMatch?.totalFloorArea && Number(epcMatch.totalFloorArea) > 0
+    ? Number(epcMatch.totalFloorArea)
+    : null;
+  const pricePerSqM = floorAreaSqM && latest.pricePaid
+    ? Math.round(latest.pricePaid / floorAreaSqM)
+    : null;
+  const pricePerSqFt = pricePerSqM ? Math.round(pricePerSqM / 10.7639) : null;
+
   return {
     lastSalePrice: latest.pricePaid,
     lastSaleDate: latest.transactionDate,
@@ -118,5 +130,8 @@ export function summarisePriceHistory(transactions) {
     yearsCovered: sorted.length > 1
       ? yearsBetween(oldest.transactionDate, latest.transactionDate).toFixed(1)
       : null,
+    floorAreaSqM,
+    pricePerSqM,
+    pricePerSqFt,
   };
 }

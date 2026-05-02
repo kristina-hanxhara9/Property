@@ -20,6 +20,10 @@ import {
 } from './apis/ons.js';
 import { fetchNomisProfile } from './apis/nomis.js';
 import { fetchGroundHazards } from './apis/groundHazards.js';
+import { fetchCrimeData } from './apis/crime.js';
+import { fetchNearbySchools } from './apis/schools.js';
+import { fetchNearbyTransport } from './apis/transport.js';
+import { fetchFoodHygieneRatings } from './apis/foodHygiene.js';
 import {
   buildRadonLink,
   buildGroundStabilityLink,
@@ -289,8 +293,46 @@ app.post('/api/property-check', async (req, res) => {
     'BGS GeoIndex — radon band, ground stability, mining (free)',
     () => fetchGroundHazards({ latitude, longitude }),
   );
+  const crimePromise = runStep(
+    res,
+    'crime',
+    'data.police.uk — crimes within 1mi (free)',
+    () => fetchCrimeData({ latitude, longitude }),
+  );
+  const schoolsPromise = runStep(
+    res,
+    'schools',
+    'DfE — state schools within 1mi with Ofsted ratings (free)',
+    () => fetchNearbySchools({ postcode: postcodeStr, latitude, longitude }),
+  );
+  const transportPromise = runStep(
+    res,
+    'transport',
+    'OpenStreetMap Overpass — nearest train, tube, tram stations (free)',
+    () => fetchNearbyTransport({ latitude, longitude }),
+  );
+  const foodPromise = runStep(
+    res,
+    'food',
+    'Food Standards Agency — restaurants & hygiene ratings (free)',
+    () => fetchFoodHygieneRatings({ postcode: postcodeStr, latitude, longitude }),
+  );
 
-  const [pricePaid, planning, flood, epc, imd, onsRental, planit, nomis, ground] = await Promise.all([
+  const [
+    pricePaid,
+    planning,
+    flood,
+    epc,
+    imd,
+    onsRental,
+    planit,
+    nomis,
+    ground,
+    crime,
+    schools,
+    transport,
+    food,
+  ] = await Promise.all([
     pricePaidPromise,
     planningPromise,
     floodPromise,
@@ -300,6 +342,10 @@ app.post('/api/property-check', async (req, res) => {
     planitPromise,
     nomisPromise,
     groundPromise,
+    crimePromise,
+    schoolsPromise,
+    transportPromise,
+    foodPromise,
   ]);
   if (!pricePaid.ok) apisFailed.push('land-registry-price-paid');
   if (!planning.ok) apisFailed.push('planning-data-gov-uk');
@@ -310,10 +356,15 @@ app.post('/api/property-check', async (req, res) => {
   if (!planit.ok) apisFailed.push('planit');
   if (!nomis.ok) apisFailed.push('ons-nomis');
   if (!ground.ok) apisFailed.push('bgs-ground');
+  if (!crime.ok) apisFailed.push('police-uk');
+  if (!schools.ok) apisFailed.push('dfe-schools');
+  if (!transport.ok) apisFailed.push('osm-transport');
+  if (!food.ok) apisFailed.push('fsa-food');
 
   apiResults.pricePaid = pricePaid.value || null;
+  apiResults.epcMatchForArea = epc.value ? pickBestEpc(epc.value, address) : null;
   apiResults.priceSummary = pricePaid.value
-    ? summarisePriceHistory(pricePaid.value.transactions)
+    ? summarisePriceHistory(pricePaid.value.transactions, { epcMatch: apiResults.epcMatchForArea })
     : null;
   apiResults.planning = planning.value || null;
   apiResults.flood = flood.value || null;
@@ -324,6 +375,10 @@ app.post('/api/property-check', async (req, res) => {
   apiResults.planit = planit.value || null;
   apiResults.nomis = nomis.value || null;
   apiResults.ground = ground.value || null;
+  apiResults.crime = crime.value || null;
+  apiResults.schools = schools.value || null;
+  apiResults.transport = transport.value || null;
+  apiResults.food = food.value || null;
   const lpaEntity = (planning.value?.constraints?.['local-planning-authority'] || [])[0] || null;
   const lpaPlanningLink = buildLpaPlanningLink({
     lpaName: lpaEntity?.name || null,
@@ -349,7 +404,7 @@ app.post('/api/property-check', async (req, res) => {
   // returned, not just the curated fields the cards display.
   sseSend(res, 'raw-data', { rawData: apiResults });
 
-  const apisQueried = 10;
+  const apisQueried = 14;
   const apisSuccessful = apisQueried - apisFailed.length;
 
   const rawDataForReport = {

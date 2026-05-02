@@ -335,6 +335,19 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
     planningApplicationsTotal: rawData?.planit?.total || 0,
     onsAreaProfile: rawData?.environmentalLinks?.onsAreaProfile || null,
 
+    // New free-data sections
+    crime: rawData?.crime || null,
+    schools: rawData?.schools || null,
+    transport: rawData?.transport || null,
+    foodHygiene: rawData?.food || null,
+    pricePerSqFt: priceSummary?.pricePerSqFt || null,
+    pricePerSqM: priceSummary?.pricePerSqM || null,
+    floorAreaSqM: priceSummary?.floorAreaSqM || null,
+
+    // Premium / paid data section — explicitly noted so users see what's
+    // missing and where to get it.
+    premiumDataAvailable: buildPremiumDataNote(),
+
     flags,
 
     keyRisks: pickKeyItems(flags, ['critical', 'warning'], 3),
@@ -403,6 +416,39 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
   }
 
   return report;
+}
+
+function buildPremiumDataNote() {
+  // Documented list of valuable property data points that require paid
+  // third-party services. We surface them so the user knows what's missing
+  // and where to get it.
+  return [
+    {
+      category: 'Asking prices & rents',
+      points: ['Asking price £/sqft', 'Asking long-let rents + yields', 'Asking HMO rents + yields'],
+      providers: 'PropertyData (~£99/mo), Hometrack, Rightmove Plus / Rightmove Data Services',
+    },
+    {
+      category: 'Commercial property',
+      points: ['Retail / Office / Industrial / Restaurant / Pub rents', 'Commercial valuations'],
+      providers: 'CoStar, Rightmove Commercial, Realla',
+    },
+    {
+      category: 'Valuations & demand',
+      points: ['Automated Valuation Model (AVM)', 'Sale demand index', 'Rental demand index'],
+      providers: 'Hometrack (~£300/mo), PropertyData, LandTech',
+    },
+    {
+      category: 'Sourcing & development',
+      points: ['Sourcing lists', 'Construction costs (BCIS)'],
+      providers: 'Property Filter, Land Insight, Landtech, RICS BCIS',
+    },
+    {
+      category: 'Workaround in this app',
+      points: ['Use the Market Comparables agent (Claude + web search) for asking-rent evidence — costs ~$0.05/run'],
+      providers: 'Built into PropertyIQ',
+    },
+  ];
 }
 
 function buildGroundRisk(ground, environmentalLinks) {

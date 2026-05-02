@@ -1,4 +1,11 @@
 import PriceChart from './PriceChart.jsx';
+import {
+  CrimeCard,
+  SchoolsCard,
+  TransportCard,
+  FoodHygieneCard,
+  PremiumDataCard,
+} from './ExtraCards.jsx';
 
 export function PropertyCards({ report }) {
   return (
@@ -11,6 +18,11 @@ export function PropertyCards({ report }) {
       <GroundCard report={report} />
       <EpcCard report={report} />
       <MarketCard report={report} />
+      <CrimeCard report={report} />
+      <SchoolsCard report={report} />
+      <TransportCard report={report} />
+      <FoodHygieneCard report={report} />
+      <PremiumDataCard report={report} />
     </div>
   );
 }
@@ -141,6 +153,11 @@ function PriceHistoryCard({ report }) {
     { label: 'Last sale', value: formatGBP(report.lastSalePrice), sub: report.lastSaleDate },
   ];
   const candidates = [
+    {
+      label: '£/sqft',
+      value: report.pricePerSqFt ? `£${report.pricePerSqFt.toLocaleString('en-GB')}` : null,
+      sub: report.floorAreaSqM ? `${report.floorAreaSqM} m² (EPC)` : null,
+    },
     { label: '1yr growth', value: report.priceGrowth1yr },
     { label: '5yr growth', value: report.priceGrowth5yr },
     { label: '10yr growth', value: report.priceGrowth10yr },
