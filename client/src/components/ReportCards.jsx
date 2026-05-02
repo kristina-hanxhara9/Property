@@ -363,18 +363,44 @@ function FloodRow({ label, value, bool }) {
 function GroundCard({ report }) {
   const g = report.groundRisk || {};
   const links = (g.links || []).filter(Boolean);
+  const stabilityTone = stabilityToTone(g.stabilityRating);
+  const radonTone = radonBandToTone(g.radonBand);
+
   return (
-    <CardShell title="Ground & environmental" source="Source: UK Radon / BGS / Coal Authority">
-      <Field label="Stability rating" value={g.stabilityRating} />
-      <Field label="Radon band" value={g.radonBand} />
-      <Field label="Mining risk" value={g.miningRisk ? 'Possible' : 'Not flagged'} />
+    <CardShell title="Ground & environmental" source="Source: BGS GeoIndex / UKHSA / Coal Authority (live data)">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-slate-500">Stability rating</span>
+        <span className={`pill-${stabilityTone}`}>
+          <DotIcon tone={stabilityTone} />
+          {g.stabilityRating || 'Unknown'}
+        </span>
+      </div>
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-slate-500">Radon band</span>
+        <span className={`pill-${radonTone}`}>
+          <DotIcon tone={radonTone} />
+          {g.radonBand && g.radonBand !== 'Unknown'
+            ? `Band ${g.radonBand}${g.radonHomesAffected ? ` · ${g.radonHomesAffected}` : ''}`
+            : 'Unknown'}
+        </span>
+      </div>
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-slate-500">Coal mining</span>
+        <span className={`pill-${g.miningRisk ? 'warn' : 'ok'}`}>
+          <DotIcon tone={g.miningRisk ? 'warn' : 'ok'} />
+          {g.miningRisk ? 'In reporting area' : 'Not flagged'}
+        </span>
+      </div>
+      {g.miningDetail && (
+        <p className="border-t border-cream-200 pt-3 text-xs text-slate-600">{g.miningDetail}</p>
+      )}
       {g.hazardTypes && g.hazardTypes.length > 0 && (
-        <BulletList label="Hazard types" items={g.hazardTypes} empty="None" />
+        <BulletList label="Specific hazards detected" items={g.hazardTypes} empty="None" />
       )}
       {links.length > 0 && (
         <div className="space-y-1.5 border-t border-cream-200 pt-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
-            Authoritative sources
+            Drill into the source data
           </p>
           {links.map((l) => (
             <a
@@ -392,6 +418,23 @@ function GroundCard({ report }) {
       )}
     </CardShell>
   );
+}
+
+function stabilityToTone(s) {
+  const v = String(s || '').toLowerCase();
+  if (v.includes('high')) return 'crit';
+  if (v.includes('medium')) return 'warn';
+  if (v.includes('low')) return 'ok';
+  return 'neutral';
+}
+
+function radonBandToTone(b) {
+  const n = Number(b);
+  if (!Number.isFinite(n)) return 'neutral';
+  if (n >= 4) return 'crit';
+  if (n >= 3) return 'warn';
+  if (n === 2) return 'info';
+  return 'ok';
 }
 
 function EpcCard({ report }) {

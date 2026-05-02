@@ -41,6 +41,27 @@ export async function fetchNomisProfile(adminDistrictCode) {
       pct >= 2 ? 'Growing' : pct <= -1 ? 'Declining' : 'Stable';
   }
 
+  const failures = {
+    earnings: earnings.status === 'rejected' ? String(earnings.reason?.message || earnings.reason || '').slice(0, 200) : null,
+    employment: employment.status === 'rejected' ? String(employment.reason?.message || employment.reason || '').slice(0, 200) : null,
+    population: population.status === 'rejected' ? String(population.reason?.message || population.reason || '').slice(0, 200) : null,
+    populationFiveYearsAgo:
+      populationFiveYearsAgo.status === 'rejected'
+        ? String(populationFiveYearsAgo.reason?.message || populationFiveYearsAgo.reason || '').slice(0, 200)
+        : null,
+  };
+
+  // If everything failed, throw so the agent log shows the failure
+  // rather than silently returning a profile of nulls.
+  const allFailed = !earningsVal && !empVal && !popLatest;
+  if (allFailed) {
+    const summary = Object.entries(failures)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(' | ');
+    throw new Error(`Nomis returned no data: ${summary || 'no observations'}`);
+  }
+
   return {
     geography: adminDistrictCode,
     earnings: earningsVal,
@@ -49,15 +70,7 @@ export async function fetchNomisProfile(adminDistrictCode) {
     populationFiveYearsAgo: pop5yr,
     populationGrowthTrend,
     populationGrowthPct,
-    failures: {
-      earnings: earnings.status === 'rejected' ? earnings.reason?.message : null,
-      employment: employment.status === 'rejected' ? employment.reason?.message : null,
-      population: population.status === 'rejected' ? population.reason?.message : null,
-      populationFiveYearsAgo:
-        populationFiveYearsAgo.status === 'rejected'
-          ? populationFiveYearsAgo.reason?.message
-          : null,
-    },
+    failures,
   };
 }
 
@@ -93,15 +106,19 @@ async function fetchMedianWeeklyEarnings(laCode) {
 // ── Employment / unemployment rate (APS NM_17_1) ─────────────────────────────
 //
 // NM_17_1 is the Annual Population Survey, residence-based.
-// Variable codes:
-//   18  — Employment rate (aged 16-64)
-//   19  — Unemployment rate (aged 16-64, model-based, % of econ active)
-//   84  — Economic activity rate (aged 16-64)
-// measures=20599 returns the percentage value.
+// Variable codes (Nomis: cell):
+//   18    — Employment rate (aged 16-64)
+//   84    — Economic activity rate (aged 16-64)
+//   85    — Unemployment rate (aged 16+)
+//   45    — % all in employment who are - employees, etc.
+// measures=20599 returns the value.
+//
+// Different LAs have different cells available depending on sample size.
+// We try the documented codes and accept whatever comes back.
 async function fetchEmploymentRates(laCode) {
   const url = `${BASE}/NM_17_1.data.json?geography=${encodeURIComponent(
     laCode,
-  )}&time=latest&variable=18,19,84&measures=20599`;
+  )}&time=latest&cell=18,84,85&measures=20599`;
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Nomis APS returned ${res.status}`);
   const body = await res.json();
@@ -113,39 +130,49 @@ async function fetchEmploymentRates(laCode) {
   let time = null;
 
   for (const o of observations) {
-    const variable = o.variable?.value || o.variable?.id;
+    const cell = o.cell?.value ?? o.cell?.id ?? o.variable?.value;
     const val = numberOrNull(o.obs_value?.value);
     time = time || o.time?.description || o.time?.value || null;
-    if (variable == 18) employmentRate = val;
-    else if (variable == 19) unemploymentRate = val;
-    else if (variable == 84) economicActivityRate = val;
+    if (cell == 18) employmentRate = val;
+    else if (cell == 85) unemploymentRate = val;
+    else if (cell == 84) economicActivityRate = val;
   }
 
-  if (employmentRate == null && unemploymentRate == null) return null;
+  if (employmentRate == null && unemploymentRate == null && economicActivityRate == null) {
+    // Surface a clear error with the obs count rather than silently returning null
+    throw new Error(`Nomis APS returned ${observations.length} observations but none matched the expected cells (18/84/85). LA may have insufficient APS sample.`);
+  }
   return {
     employmentRate,
     unemploymentRate,
     economicActivityRate,
     time,
     source: 'ONS Annual Population Survey — residence-based, aged 16-64',
+    observationCount: observations.length,
   };
 }
 
 // ── Population (NM_2002_1) ──────────────────────────────────────────────────
 //
 // NM_2002_1 is mid-year population estimates by single year of age.
-// Filters: gender=0 (persons), age=0 (all ages), measures=20100 (value).
+// Filters: sex=0 (persons / all), age=0 (all ages), measures=20100 (value).
 //
 // `time` accepts: latest, latestMINUS1, latestMINUS5, or YYYY.
 async function fetchPopulation(laCode, time = 'latest') {
+  // Try a couple of filter shapes since Nomis APIs vary.
+  // Primary: sex=0 + age=0 (all persons, all ages)
+  // Fallback: c2021_age=0 (Census-aligned aggregations)
   const url = `${BASE}/NM_2002_1.data.json?geography=${encodeURIComponent(
     laCode,
-  )}&time=${time}&gender=0&age=0&measures=20100`;
+  )}&time=${time}&sex=0&age=0&measures=20100`;
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Nomis population returned ${res.status}`);
   const body = await res.json();
-  const obs = pickObservation(body);
-  if (!obs) return null;
+  const observations = body?.obs || [];
+  const obs = observations[0];
+  if (!obs) {
+    throw new Error(`Nomis population returned 0 observations for ${laCode}/${time}`);
+  }
   return {
     value: numberOrNull(obs.obs_value?.value),
     time: obs.time?.description || obs.time?.value || null,

@@ -316,19 +316,7 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
       floodInsuranceImplication: insuranceNote(flood),
     },
 
-    groundRisk: {
-      stabilityRating: 'See BGS GeoIndex',
-      hazardTypes: [],
-      radonBand: 'See UK Radon map',
-      miningRisk: false,
-      links: rawData?.environmentalLinks
-        ? [
-            rawData.environmentalLinks.radon,
-            rawData.environmentalLinks.groundStability,
-            rawData.environmentalLinks.mining,
-          ]
-        : [],
-    },
+    groundRisk: buildGroundRisk(rawData?.ground, rawData?.environmentalLinks),
 
     epcData: buildEpcSummary(rawData?.epcMatch, rawData?.epc),
 
@@ -415,6 +403,59 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
   }
 
   return report;
+}
+
+function buildGroundRisk(ground, environmentalLinks) {
+  // If BGS GeoIndex returned data, use it. Otherwise show the link-throughs.
+  if (!ground) {
+    return {
+      stabilityRating: 'See BGS GeoIndex',
+      hazardTypes: [],
+      radonBand: 'See UK Radon map',
+      miningRisk: false,
+      links: environmentalLinks
+        ? [environmentalLinks.radon, environmentalLinks.groundStability, environmentalLinks.mining]
+        : [],
+    };
+  }
+
+  // Build a list of hazard types that triggered for this point.
+  const hazardTypes = [];
+  if (ground.hazards) {
+    for (const [key, h] of Object.entries(ground.hazards)) {
+      if (h?.present && h.severityScore >= 2) {
+        hazardTypes.push(`${humaniseHazardKey(key)} — ${h.severity}`);
+      }
+    }
+  }
+
+  return {
+    stabilityRating: ground.stabilityRating || 'Unknown',
+    hazardTypes,
+    radonBand: ground.radon?.band ? String(ground.radon.band) : 'Unknown',
+    radonLabel: ground.radon?.label || null,
+    radonHomesAffected: ground.radon?.percentageHomes || null,
+    miningRisk: Boolean(ground.coalMining?.withinReportingArea),
+    miningDetail: ground.coalMining?.withinReportingArea
+      ? 'Within Coal Authority reporting area — full Coal Mining Report (£30) recommended.'
+      : 'Outside Coal Authority reporting area.',
+    fullHazards: ground.hazards,
+    links: environmentalLinks
+      ? [environmentalLinks.radon, environmentalLinks.groundStability, environmentalLinks.mining]
+      : [],
+  };
+}
+
+function humaniseHazardKey(key) {
+  const map = {
+    compressibleGround: 'Compressible ground',
+    collapsibleDeposits: 'Collapsible deposits',
+    landslide: 'Landslide hazard',
+    runningSand: 'Running sand',
+    shrinkSwell: 'Shrink-swell clay',
+    solubleRocks: 'Soluble rocks (dissolution)',
+  };
+  return map[key] || key;
 }
 
 function buildEpcSummary(epcMatch, epcResult) {

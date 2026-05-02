@@ -28,18 +28,41 @@ export async function fetchPostcodeDemographics(postcode) {
     if (!text.trim().startsWith('{')) return null;
     const body = JSON.parse(text);
     const attr = body?.data?.attributes || {};
+    const rels = body?.data?.relationships || {};
+
+    // findthatpostcode uses different IMD field names depending on which
+    // dataset version is included. Try every plausible name.
+    const imdDecile = pickFirstNumber(
+      attr.imd2019_decile,
+      attr['imd2019_decile_(la_aware)'],
+      attr.imd_2019_decile,
+      attr.imd_decile,
+      attr.imd2015_decile,
+      // English IMD lives under `imd_decile_2019` in some versions
+      attr.imd_decile_2019,
+      attr.imd_eng_2019_decile,
+    );
+    const imdRank = pickFirstNumber(
+      attr.imd2019_rank,
+      attr.imd_2019_rank,
+      attr.imd_rank,
+      attr.imd_eng_2019_rank,
+    );
+    const imdScore = pickFirstNumber(
+      attr.imd2019_score,
+      attr.imd_2019_score,
+      attr.imd_score,
+      attr.imd_eng_2019_score,
+    );
 
     return {
       postcode: attr.pcds || cleaned,
-      lsoa: attr.lsoa11 || null,
-      msoa: attr.msoa11 || null,
-      imdDecile:
-        numberOrNull(attr.imd2019_decile) ||
-        numberOrNull(attr.imd_decile) ||
-        numberOrNull(attr.imd2015_decile),
-      imdRank: numberOrNull(attr.imd2019_rank) || numberOrNull(attr.imd_rank),
-      imdScore: numberOrNull(attr.imd2019_score) || numberOrNull(attr.imd_score),
-      ruralUrban: attr.ru11ind || null,
+      lsoa: attr.lsoa11 || attr.lsoa21 || null,
+      msoa: attr.msoa11 || attr.msoa21 || null,
+      imdDecile,
+      imdRank,
+      imdScore,
+      ruralUrban: attr.ru11ind || attr.ruc21ind || null,
       adminCounty: attr.admin_county || null,
       adminDistrict: attr.admin_district || null,
       adminWard: attr.admin_ward || null,
@@ -48,10 +71,20 @@ export async function fetchPostcodeDemographics(postcode) {
       ccg: attr.ccg || null,
       nuts: attr.nuts || null,
       raw: body,
+      // Surface what we got so the user / log can see field availability
+      _availableKeys: Object.keys(attr).filter((k) => /imd|deprivation/i.test(k)),
     };
   } catch {
     return null;
   }
+}
+
+function pickFirstNumber(...values) {
+  for (const v of values) {
+    const n = numberOrNull(v);
+    if (n != null) return n;
+  }
+  return null;
 }
 
 // Legacy IMD-only lookup via SPARQL — kept as a fallback when

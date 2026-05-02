@@ -94,14 +94,18 @@ function FieldTable({ obj, depth = 0 }) {
 
   return (
     <div className={depth === 0 ? 'border-t border-cream-200' : 'mt-1 border-l-2 border-cream-200 pl-3'}>
-      <table className="w-full">
+      <table className="w-full" style={{ tableLayout: 'fixed' }}>
+        <colgroup>
+          <col style={{ width: '34%' }} />
+          <col style={{ width: '66%' }} />
+        </colgroup>
         <tbody>
           {entries.map(([k, v]) => (
             <tr key={k} className="border-b border-cream-100 last:border-b-0">
-              <td className="w-1/3 break-all bg-cream-50 px-3 py-2 text-xs font-semibold text-ink">
+              <td className="bg-cream-50 px-3 py-2 align-top text-xs font-semibold text-ink" style={{ wordBreak: 'normal', overflowWrap: 'anywhere' }}>
                 {k}
               </td>
-              <td className="break-words px-3 py-2 text-xs text-slate-700">
+              <td className="px-3 py-2 align-top text-xs text-slate-700" style={{ wordBreak: 'normal', overflowWrap: 'anywhere' }}>
                 {renderValue(v, depth)}
               </td>
             </tr>
@@ -155,11 +159,14 @@ function RecordTable({ records, compact }) {
 
   return (
     <div className={`overflow-x-auto ${compact ? '' : 'border-t border-cream-200'}`}>
-      <table className="w-full text-xs">
+      <table className="text-xs" style={{ minWidth: '100%', tableLayout: 'auto' }}>
         <thead>
           <tr className="bg-cream-100">
             {keys.map((k) => (
-              <th key={k} className="border-b border-cream-200 px-2 py-1.5 text-left font-semibold text-claude-700">
+              <th
+                key={k}
+                className="whitespace-nowrap border-b border-cream-200 px-3 py-1.5 text-left font-semibold text-claude-700"
+              >
                 {k}
               </th>
             ))}
@@ -169,7 +176,16 @@ function RecordTable({ records, compact }) {
           {records.map((r, i) => (
             <tr key={i} className="border-b border-cream-100">
               {keys.map((k) => (
-                <td key={k} className="break-words px-2 py-1.5 align-top text-slate-700">
+                <td
+                  key={k}
+                  className="px-3 py-1.5 align-top text-slate-700"
+                  style={{
+                    minWidth: '100px',
+                    maxWidth: '320px',
+                    wordBreak: 'normal',
+                    overflowWrap: 'anywhere',
+                  }}
+                >
                   {renderValue(r?.[k], 0)}
                 </td>
               ))}

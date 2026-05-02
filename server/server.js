@@ -19,6 +19,7 @@ import {
   fetchOnsRegionalRentalGrowth,
 } from './apis/ons.js';
 import { fetchNomisProfile } from './apis/nomis.js';
+import { fetchGroundHazards } from './apis/groundHazards.js';
 import {
   buildRadonLink,
   buildGroundStabilityLink,
@@ -269,8 +270,14 @@ app.post('/api/property-check', async (req, res) => {
     'ONS Nomis — earnings, employment, population (free)',
     () => fetchNomisProfile(adminDistrictCode),
   );
+  const groundPromise = runStep(
+    res,
+    'bgs-ground',
+    'BGS GeoIndex — radon band, ground stability, mining (free)',
+    () => fetchGroundHazards({ latitude, longitude }),
+  );
 
-  const [pricePaid, planning, flood, epc, imd, onsRental, planit, nomis] = await Promise.all([
+  const [pricePaid, planning, flood, epc, imd, onsRental, planit, nomis, ground] = await Promise.all([
     pricePaidPromise,
     planningPromise,
     floodPromise,
@@ -279,6 +286,7 @@ app.post('/api/property-check', async (req, res) => {
     onsRentalPromise,
     planitPromise,
     nomisPromise,
+    groundPromise,
   ]);
   if (!pricePaid.ok) apisFailed.push('land-registry-price-paid');
   if (!planning.ok) apisFailed.push('planning-data-gov-uk');
@@ -288,6 +296,7 @@ app.post('/api/property-check', async (req, res) => {
   if (!onsRental.ok) apisFailed.push('ons-rental');
   if (!planit.ok) apisFailed.push('planit');
   if (!nomis.ok) apisFailed.push('ons-nomis');
+  if (!ground.ok) apisFailed.push('bgs-ground');
 
   apiResults.pricePaid = pricePaid.value || null;
   apiResults.priceSummary = pricePaid.value
@@ -301,6 +310,7 @@ app.post('/api/property-check', async (req, res) => {
   apiResults.onsRental = onsRental.value || null;
   apiResults.planit = planit.value || null;
   apiResults.nomis = nomis.value || null;
+  apiResults.ground = ground.value || null;
   const lpaEntity = (planning.value?.constraints?.['local-planning-authority'] || [])[0] || null;
   const lpaPlanningLink = buildLpaPlanningLink({
     lpaName: lpaEntity?.name || null,
@@ -326,7 +336,7 @@ app.post('/api/property-check', async (req, res) => {
   // returned, not just the curated fields the cards display.
   sseSend(res, 'raw-data', { rawData: apiResults });
 
-  const apisQueried = 9;
+  const apisQueried = 10;
   const apisSuccessful = apisQueried - apisFailed.length;
 
   const rawDataForReport = {
