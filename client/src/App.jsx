@@ -3,6 +3,7 @@ import Header from './components/Header.jsx';
 import Home from './pages/Home.jsx';
 import Report from './pages/Report.jsx';
 import PremiumServices from './pages/PremiumServices.jsx';
+import MapView from './pages/MapView.jsx';
 import { streamPostSSE } from './lib/sseClient.js';
 import { apiUrl } from './lib/api.js';
 
@@ -132,12 +133,29 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-cream-50">
-      <Header onHome={handleNewSearch} onPremium={() => setView('premium')} />
+      <Header
+        onHome={handleNewSearch}
+        onPremium={() => setView('premium')}
+        onMap={() => setView('map')}
+      />
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12">
+      <main
+        className={
+          view === 'map'
+            ? 'mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12'
+            : 'mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12'
+        }
+      >
         {view === 'home' && (
-          <Home mode={mode} onModeChange={setMode} onSubmit={handleSubmit} busy={isStreaming} />
+          <Home
+            mode={mode}
+            onModeChange={setMode}
+            onSubmit={handleSubmit}
+            busy={isStreaming}
+            onMap={() => setView('map')}
+          />
         )}
+        {view === 'map' && <MapView />}
         {view === 'premium' && <PremiumServices onBack={() => setView('home')} />}
         {view === 'report' && (
           <Report

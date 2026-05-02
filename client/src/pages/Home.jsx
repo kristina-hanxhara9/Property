@@ -1,6 +1,6 @@
 import SearchBar from '../components/SearchBar.jsx';
 
-export default function Home({ mode, onModeChange, onSubmit, busy }) {
+export default function Home({ mode, onModeChange, onSubmit, busy, onMap }) {
   return (
     <div className="space-y-12">
       <section>
@@ -21,6 +21,25 @@ export default function Home({ mode, onModeChange, onSubmit, busy }) {
           onSubmit={onSubmit}
           busy={busy}
         />
+        {onMap && (
+          <button
+            type="button"
+            onClick={onMap}
+            className="mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-claude-200 bg-claude-50 px-5 py-4 text-left transition hover:border-claude-300 hover:bg-claude-100"
+          >
+            <div>
+              <p className="font-display text-base font-bold text-ink">
+                🗺️ Or — open the Map view
+              </p>
+              <p className="mt-0.5 text-sm text-slate-700">
+                Click anywhere in the UK to drop a pin and analyse that exact spot. Constraint
+                overlays (conservation, listed, flood zones) appear automatically. The way most
+                developers and land sourcers actually work.
+              </p>
+            </div>
+            <span className="font-display text-2xl text-claude-700">→</span>
+          </button>
+        )}
       </section>
 
       <section id="how-it-works">

@@ -1,4 +1,4 @@
-export default function Header({ onHome, onPremium }) {
+export default function Header({ onHome, onPremium, onMap }) {
   return (
     <header className="border-b border-cream-200 bg-white">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
@@ -24,7 +24,16 @@ export default function Header({ onHome, onPremium }) {
           </span>
         </button>
 
-        <nav className="hidden items-center gap-6 text-sm text-ink/70 md:flex">
+        <nav className="hidden items-center gap-5 text-sm text-ink/70 md:flex">
+          {onMap && (
+            <button
+              type="button"
+              onClick={onMap}
+              className="inline-flex items-center gap-1.5 rounded-full bg-claude-50 px-3 py-1.5 font-semibold text-claude-700 hover:bg-claude-100"
+            >
+              🗺️ Map view
+            </button>
+          )}
           <a href="#how-it-works" className="hover:text-claude">How it works</a>
           <a href="#data-sources" className="hover:text-claude">Data sources</a>
           {onPremium && (
@@ -33,7 +42,7 @@ export default function Header({ onHome, onPremium }) {
               onClick={onPremium}
               className="font-semibold text-claude-700 hover:text-claude-600"
             >
-              Premium services
+              Premium
             </button>
           )}
           <a
