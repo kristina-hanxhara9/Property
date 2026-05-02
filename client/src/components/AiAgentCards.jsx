@@ -179,6 +179,88 @@ function ConstructionCostResult({ data }) {
   );
 }
 
+export function CorporatePropertiesAgentCard({ report }) {
+  const body = {
+    companyName: report?.companyProfile?.officialName || report?.queryInput,
+    companyNumber: report?.companyProfile?.companyNumber,
+  };
+  return (
+    <AgentRunnerCard
+      title="UK property holdings (AI search alternative)"
+      subtitle="The Land Registry CCOD/OCOD bulk datasets need session-based access not available to automated tools. This agent searches Property Week, Construction News, EG, the company's annual report, and news sources to identify properties owned, developed, leased, or managed."
+      endpoint="/api/corporate-properties"
+      body={body}
+      eventName="corporate-properties"
+      buttonLabel="Run holdings agent"
+      noteCost="~$0.10–0.20 per run"
+      caveats={[
+        'Web-derived evidence only — surfaces the most-publicised holdings, not every title.',
+        'Major housebuilders may own thousands of titles; only the headline ones are likely to appear.',
+        'For a definitive title-by-title list, manually search the Land Registry CCOD CSV using the company number.',
+      ]}
+      renderResult={(d) => <CorporatePropertiesResult data={d} />}
+    />
+  );
+}
+
+function CorporatePropertiesResult({ data }) {
+  if (!data.found) {
+    return (
+      <div className="rounded-xl border border-warn-bg bg-warn-bg/40 p-3 text-sm">
+        <p className="font-semibold text-warn-text">No specific properties evidenced</p>
+        <p className="mt-1 text-xs text-slate-700">{safeText(data.summary)}</p>
+        {data.searchQueriesUsed && (
+          <p className="mt-1 text-xs text-slate-500">
+            Searched: {data.searchQueriesUsed.map((q) => `"${q}"`).join(' · ')}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-cream-50 p-3 text-sm">
+        <p className="font-semibold text-ink">{data.totalFound} properties evidenced</p>
+        <p className="mt-1 text-xs text-slate-700">{safeText(data.summary)}</p>
+      </div>
+      <ul className="space-y-2">
+        {(data.properties || []).map((p, i) => (
+          <li key={i} className="rounded-xl border border-cream-200 bg-white p-3 text-sm">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="font-semibold text-ink">{safeText(p.address)}</p>
+              <span className="pill-info">{safeText(p.relationship)}</span>
+            </div>
+            <p className="text-xs text-slate-600">
+              {safeText(p.type)}
+              {p.town ? ` · ${safeText(p.town)}` : ''}
+              {p.postcode ? ` · ${safeText(p.postcode)}` : ''}
+              {p.yearAcquired ? ` · acquired ${p.yearAcquired}` : ''}
+              {p.yearDisposed ? ` · disposed ${p.yearDisposed}` : ''}
+              {p.value ? ` · ${safeText(p.value)}` : ''}
+            </p>
+            {p.evidenceQuote && (
+              <p className="mt-1 italic text-xs text-slate-600">"{safeText(p.evidenceQuote)}"</p>
+            )}
+            <p className="mt-1 text-xs text-slate-500">
+              Source: {safeText(p.source)}{' '}
+              {p.sourceUrl && (
+                <a
+                  href={p.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-claude-700 hover:underline"
+                >
+                  ↗
+                </a>
+              )}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function VatLookupAgentCard({ report }) {
   const body = {
     companyName: report?.companyProfile?.officialName || report?.queryInput,

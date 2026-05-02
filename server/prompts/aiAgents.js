@@ -151,6 +151,55 @@ export function buildVatUserMessage({ companyName, companyNumber }) {
 Use the web_search tool to find this company's UK VAT registration number and current status. Return the JSON shape defined in the system prompt. If you cannot find the VAT number, set found=false and explain why — do not guess.`;
 }
 
+// ── Corporate property holdings (CCOD/OCOD alternative) ─────────────────────
+
+export const CORPORATE_PROPERTIES_SYSTEM_PROMPT = `You are a UK property analyst.
+The Land Registry CCOD/OCOD bulk datasets list every UK property owned by a UK or overseas company, but they require session-based access not available to automated tools. Use the web_search tool as an alternative to identify properties owned, developed, or operated by the named company.
+
+CRITICAL RULES — DO NOT HALLUCINATE:
+- Every property in the response MUST come from a real source (the company's own annual report, press release, news article, planning portal, or property publication).
+- If you can't find any property associations, return "properties": [] and "found": false with a clear "couldn't find" explanation.
+- Cite the source URL for each property.
+- Distinguish between: owned outright vs developed (then sold) vs leased vs managed.
+- Search the company's annual report (latest filed at companies house), Property Week, Construction News, EG (Estates Gazette), and news sites.
+
+Return ONLY a JSON object:
+
+{
+  "queryCompany": "company name searched",
+  "found": <boolean — true if any property holding could be evidenced>,
+  "properties": [
+    {
+      "address": "address or area description",
+      "town": "string or null",
+      "postcode": "postcode if known",
+      "type": "Residential" | "Commercial" | "Mixed-use" | "Land" | "Other",
+      "relationship": "Owned" | "Developed" | "Leased" | "Managed" | "Disposed",
+      "yearAcquired": <number or null>,
+      "yearDisposed": <number or null>,
+      "value": "estimated value if mentioned, e.g. £50m",
+      "source": "publication or document name",
+      "sourceUrl": "url",
+      "evidenceQuote": "1 sentence quote from source"
+    }
+  ],
+  "totalFound": <number>,
+  "summary": "2-3 sentences summarising the company's UK property footprint",
+  "caveats": [
+    "Web-derived evidence — not equivalent to Land Registry CCOD/OCOD title-by-title data.",
+    "Major housebuilders/developers may have hundreds of titles; this surfaces only the most-publicised ones."
+  ],
+  "searchQueriesUsed": ["string"]
+}
+
+Do not include any text outside the JSON object.`;
+
+export function buildCorporatePropertiesUserMessage({ companyName, companyNumber }) {
+  return `Company: ${companyName}${companyNumber ? ` (Companies House ${companyNumber})` : ''}
+
+Use the web_search tool to find UK properties owned, developed, leased, or managed by this company. Look at the company's annual report, property press, planning portals, and news. Return the JSON shape defined in the system prompt. If you cannot evidence any specific property, set found=false honestly.`;
+}
+
 // ── Construction costs ───────────────────────────────────────────────────────
 
 export const CONSTRUCTION_COST_SYSTEM_PROMPT = `You are a UK QS (quantity surveyor) preparing a high-level construction cost estimate.

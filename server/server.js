@@ -55,6 +55,8 @@ import {
   buildConstructionCostUserMessage,
   VAT_LOOKUP_SYSTEM_PROMPT,
   buildVatUserMessage,
+  CORPORATE_PROPERTIES_SYSTEM_PROMPT,
+  buildCorporatePropertiesUserMessage,
 } from './prompts/aiAgents.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -971,6 +973,34 @@ app.post('/api/vat-lookup', async (req, res) => {
     maxUses: 6,
     eventName: 'vat-lookup',
     label: 'VAT lookup agent — Claude + web search (gov.uk + EU VIES)',
+  });
+});
+
+app.post('/api/corporate-properties', async (req, res) => {
+  const { companyName, companyNumber } = req.body || {};
+  if (!companyName) {
+    res.status(400).json({ error: 'companyName required' });
+    return;
+  }
+  await runWebSearchAgent(res, {
+    systemPrompt: CORPORATE_PROPERTIES_SYSTEM_PROMPT,
+    userMessage: buildCorporatePropertiesUserMessage({ companyName, companyNumber }),
+    allowedDomains: [
+      'propertyweek.com',
+      'constructionnews.co.uk',
+      'egi.co.uk',
+      'estatesgazette.com',
+      'find-and-update.company-information.service.gov.uk',
+      'planit.org.uk',
+      'gov.uk',
+      'ft.com',
+      'theguardian.com',
+      'reuters.com',
+      'bloomberg.com',
+    ],
+    maxUses: 8,
+    eventName: 'corporate-properties',
+    label: 'Corporate property holdings agent — Claude + web search (annual reports, property press)',
   });
 });
 
