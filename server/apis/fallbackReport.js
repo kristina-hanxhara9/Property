@@ -235,6 +235,8 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
     lpaName,
   });
 
+  const nomis = rawData?.nomis || null;
+
   const report = {
     reportType: 'property',
     queryInput: address || postcode || 'Unknown',
@@ -335,6 +337,7 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
       lpaName,
       imd: rawData?.imd,
       onsRental: rawData?.onsRental,
+      nomis,
     }),
 
     planningHistoryLink: rawData?.environmentalLinks?.planningHistory || null,
@@ -478,8 +481,42 @@ function buildEpcSummary(epcMatch, epcResult) {
   };
 }
 
-function buildMarketContext({ postcodeData, lpaName, imd, onsRental }) {
+function buildMarketContext({ postcodeData, lpaName, imd, onsRental, nomis }) {
   const demo = imd?.demographics || null;
+
+  // Income — Nomis ASHE residence-based median weekly pay → annualised
+  let avgHouseholdIncome = 'Unknown';
+  let medianWeeklyEarnings = null;
+  let earningsTime = null;
+  if (nomis?.earnings?.medianAnnualGross) {
+    avgHouseholdIncome = `£${nomis.earnings.medianAnnualGross.toLocaleString('en-GB')} (median, full-time)`;
+    medianWeeklyEarnings = nomis.earnings.medianWeeklyGross;
+    earningsTime = nomis.earnings.time;
+  }
+
+  // Employment + unemployment from Nomis APS
+  let employmentRate = 'Unknown';
+  let unemploymentRate = null;
+  let economicActivityRate = null;
+  let employmentTime = null;
+  if (nomis?.employment) {
+    if (nomis.employment.employmentRate != null) {
+      employmentRate = `${nomis.employment.employmentRate.toFixed(1)}% (16-64)`;
+    }
+    unemploymentRate = nomis.employment.unemploymentRate;
+    economicActivityRate = nomis.employment.economicActivityRate;
+    employmentTime = nomis.employment.time;
+  }
+
+  // Population trend from two ONS mid-year estimates
+  let populationGrowthTrend = 'Unknown';
+  let populationLatest = null;
+  if (nomis?.populationGrowthTrend) {
+    populationGrowthTrend = `${nomis.populationGrowthTrend} (${nomis.populationGrowthPct} over 5 years)`;
+  }
+  if (nomis?.population?.value) {
+    populationLatest = nomis.population.value;
+  }
 
   const ctx = {
     localAuthority: postcodeData?.adminDistrict || demo?.adminDistrict || lpaName || 'Unknown',
@@ -487,9 +524,15 @@ function buildMarketContext({ postcodeData, lpaName, imd, onsRental }) {
       postcodeData?.parliamentaryConstituency || demo?.parliamentaryConstituency || null,
     region: postcodeData?.region || null,
     ruralUrban: demo?.ruralUrban || null,
-    avgHouseholdIncome: 'Unknown',
-    populationGrowthTrend: 'Unknown',
-    employmentRate: 'Unknown',
+    avgHouseholdIncome,
+    medianWeeklyEarnings,
+    earningsTime,
+    populationGrowthTrend,
+    populationLatest,
+    employmentRate,
+    unemploymentRate,
+    economicActivityRate,
+    employmentTime,
     deprivationDecile: imd?.decile ?? null,
     deprivationScore: imd?.score ?? null,
     deprivationRank: imd?.rank ?? null,

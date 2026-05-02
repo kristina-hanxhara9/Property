@@ -480,9 +480,29 @@ function MarketCard({ report }) {
           mono
         />
       )}
-      <Field label="Avg household income" value={m.avgHouseholdIncome} />
+      <Field label="Median annual earnings" value={m.avgHouseholdIncome} />
+      {m.medianWeeklyEarnings != null && (
+        <Field
+          label={`Median weekly pay${m.earningsTime ? ` (${m.earningsTime})` : ''}`}
+          value={`£${m.medianWeeklyEarnings.toFixed(2)}`}
+          mono
+        />
+      )}
       <Field label="Population trend" value={m.populationGrowthTrend} />
+      {m.populationLatest && (
+        <Field label="Population (latest)" value={m.populationLatest.toLocaleString('en-GB')} mono />
+      )}
       <Field label="Employment rate" value={m.employmentRate} />
+      {m.unemploymentRate != null && (
+        <Field label="Unemployment rate (16-64)" value={`${m.unemploymentRate.toFixed(1)}%`} mono />
+      )}
+      {m.economicActivityRate != null && (
+        <Field
+          label="Economic activity rate (16-64)"
+          value={`${m.economicActivityRate.toFixed(1)}%`}
+          mono
+        />
+      )}
       <Field label="Avg rental yield" value={m.avgRentalYield} />
       <Field label="Avg rent" value={m.avgRent} />
       <Field label="Demand rating" value={m.demandRating} />
