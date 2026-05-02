@@ -126,24 +126,45 @@ function renderValue(v, depth) {
   if (typeof v === 'string') {
     if (v.startsWith('http://') || v.startsWith('https://')) {
       return (
-        <a href={v} target="_blank" rel="noopener noreferrer" className="text-claude-700 hover:underline">
+        <a
+          href={v}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-claude-700 hover:underline"
+        >
           {v}
         </a>
       );
     }
-    return <span className="break-words">{v}</span>;
+    return <span>{v}</span>;
   }
   if (Array.isArray(v)) {
     if (v.length === 0) return <span className="italic text-slate-400">[]</span>;
-    if (typeof v[0] === 'object') {
+    if (typeof v[0] === 'object' && v[0] !== null) {
       return <RecordTable records={v} compact />;
     }
-    return <span>{v.map((x) => String(x)).join(', ')}</span>;
+    return <span>{v.map((x) => safeStringify(x)).join(', ')}</span>;
   }
   if (typeof v === 'object') {
+    // Tiny "code/description" objects render inline as text rather than
+    // a nested table — looks much cleaner in record cells.
+    if (Object.keys(v).length <= 3 && (v.description || v.name || v.label)) {
+      return <span>{v.description || v.name || v.label}</span>;
+    }
     return <FieldTable obj={v} depth={depth + 1} />;
   }
-  return <span>{String(v)}</span>;
+  return <span>{safeStringify(v)}</span>;
+}
+
+function safeStringify(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
 }
 
 function RecordTable({ records, compact }) {

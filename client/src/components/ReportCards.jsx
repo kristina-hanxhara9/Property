@@ -6,6 +6,7 @@ import {
   FoodHygieneCard,
   PremiumDataCard,
 } from './ExtraCards.jsx';
+import { safeText } from '../lib/safeText.js';
 
 export function PropertyCards({ report }) {
   return (
@@ -56,14 +57,15 @@ function CardShell({ title, source, children, className = '' }) {
 }
 
 function Field({ label, value, mono }) {
+  const safe = safeText(value);
   return (
     <div className="flex items-baseline justify-between gap-3 text-sm">
-      <span className="text-slate-500">{label}</span>
+      <span className="text-slate-500">{safeText(label)}</span>
       <span
         className={`font-medium text-ink ${mono ? 'tabular-nums' : ''} max-w-[60%] truncate`}
-        title={typeof value === 'string' ? value : undefined}
+        title={safe}
       >
-        {value == null || value === '' ? '—' : value}
+        {safe}
       </span>
     </div>
   );
@@ -128,15 +130,20 @@ function LegalCard({ report }) {
 function BulletList({ label, items, empty }) {
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+        {safeText(label)}
+      </p>
       {!items || items.length === 0 ? (
-        <p className="text-sm text-slate-500">{empty}</p>
+        <p className="text-sm text-slate-500">{safeText(empty)}</p>
       ) : (
         <ul className="space-y-1 text-sm text-ink">
           {items.map((item, idx) => (
-            <li key={`${label}-${idx}`} className="flex gap-2">
-              <span aria-hidden className="mt-1.5 block h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
-              <span>{item}</span>
+            <li key={`${idx}`} className="flex gap-2">
+              <span
+                aria-hidden
+                className="mt-1.5 block h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300"
+              />
+              <span>{safeText(item)}</span>
             </li>
           ))}
         </ul>

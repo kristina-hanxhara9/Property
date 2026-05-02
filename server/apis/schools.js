@@ -54,20 +54,38 @@ export async function fetchNearbySchools({ postcode, latitude, longitude, radius
 function normaliseSchool(r) {
   return {
     urn: r.urn || r.URN || null,
-    name: r.name || r.SchoolName || r.schoolName || null,
-    type: r.schoolType || r.school_type || r.type || r.OfstedRating || null,
-    phase: r.phase || r.PhaseOfEducation || r.phaseOfEducation || null,
-    address: r.address || r.fullAddress || null,
-    postcode: r.postcode || null,
+    name: pickString(r.name, r.SchoolName, r.schoolName),
+    type: pickString(r.schoolType, r.school_type, r.type),
+    phase: pickString(r.phase, r.PhaseOfEducation, r.phaseOfEducation),
+    address: pickString(r.address, r.fullAddress),
+    postcode: pickString(r.postcode),
     distanceMiles: numberOrNull(r.distance) || numberOrNull(r.distanceFromPostcode),
-    ofstedRating: r.ofstedRating || r.OfstedRating || r.ofsted?.rating || null,
-    ofstedDate: r.ofstedDate || r.dateOfLastInspection || null,
-    ageRange: r.ageRange || r.statutoryLowAge && `${r.statutoryLowAge}-${r.statutoryHighAge}` || null,
+    ofstedRating: pickString(r.ofstedRating, r.OfstedRating, r.ofsted?.rating),
+    ofstedDate: pickString(r.ofstedDate, r.dateOfLastInspection),
+    ageRange:
+      pickString(r.ageRange) ||
+      (r.statutoryLowAge && `${r.statutoryLowAge}-${r.statutoryHighAge}`) ||
+      null,
     capacity: numberOrNull(r.capacity || r.schoolCapacity),
     pupils: numberOrNull(r.numberOfPupils || r.pupilCount),
-    gender: r.gender || null,
-    religiousCharacter: r.religiousCharacter || null,
+    gender: pickString(r.gender),
+    religiousCharacter: pickString(r.religiousCharacter),
   };
+}
+
+// Unwrap {code, description} objects (and similar) returned by GIAS-style
+// APIs into plain strings so the UI can render them safely.
+function pickString(...candidates) {
+  for (const v of candidates) {
+    if (v == null) continue;
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (typeof v === 'object') {
+      const text = v.description || v.name || v.label || v.value || v.title;
+      if (typeof text === 'string') return text;
+    }
+  }
+  return null;
 }
 
 function numberOrNull(v) {

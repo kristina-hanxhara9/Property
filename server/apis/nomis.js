@@ -126,18 +126,22 @@ async function fetchMedianWeeklyEarnings(laCode) {
 // couple of times so different LAs / time periods may need different
 // dimension names.
 async function fetchEmploymentRates(laCode) {
+  // NM_17_1 is the modern APS dataset; NM_127_1 is the older Annual Population
+  // Survey - workplace; NM_85_1 is "labour market profile" with aggregate stats.
+  // We try the modern dataset with multiple time and filter shapes, then fall
+  // back to alternative datasets if NM_17_1 has no data for this LA.
   const attempts = [
-    // Modern: cell parameter, well-known APS cells
-    `cell=18,84,85`,
-    // Older: variable parameter
-    `variable=18,84,85`,
-    // No filter — pull all cells, we filter client-side
-    ``,
+    { dataset: 'NM_17_1', timeParam: 'time=latest', filter: 'cell=18,84,85' },
+    { dataset: 'NM_17_1', timeParam: 'date=latest', filter: 'cell=18,84,85' },
+    { dataset: 'NM_17_1', timeParam: 'time=latestMINUS1', filter: 'cell=18,84,85' },
+    { dataset: 'NM_17_1', timeParam: 'time=latest', filter: 'variable=18,84,85' },
+    { dataset: 'NM_17_5', timeParam: 'time=latest', filter: 'cell=403,407' },
+    { dataset: 'NM_17_1', timeParam: 'time=latest', filter: '' },
   ];
 
   let lastError = null;
-  for (const filter of attempts) {
-    const url = `${BASE}/NM_17_1.data.json?geography=${encodeURIComponent(laCode)}&time=latest&measures=20599${
+  for (const { dataset, timeParam, filter } of attempts) {
+    const url = `${BASE}/${dataset}.data.json?geography=${encodeURIComponent(laCode)}&${timeParam}&measures=20599${
       filter ? '&' + filter : ''
     }`;
     try {
@@ -173,13 +177,13 @@ async function fetchEmploymentRates(laCode) {
           unemploymentRate,
           economicActivityRate,
           time,
-          source: 'ONS Annual Population Survey — residence-based, aged 16-64',
+          source: `ONS APS (${dataset}) — residence-based, aged 16-64`,
           observationCount: observations.length,
-          filterUsed: filter || 'none',
+          filterUsed: `${dataset} · ${timeParam} · ${filter || 'no filter'}`,
         };
       }
       lastError = new Error(
-        `Nomis APS returned ${observations.length} obs for filter "${filter || 'none'}" but none matched cells 18/84/85`,
+        `Nomis ${dataset} returned ${observations.length} obs (${timeParam}, ${filter || 'no filter'}) but none matched expected cells`,
       );
     } catch (err) {
       lastError = err;

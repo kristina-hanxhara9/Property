@@ -1,6 +1,8 @@
 // New cards for crime, schools, transport, food hygiene, and the
 // "premium data" upsell — all sit alongside the existing PropertyCards.
 
+import { safeText } from '../lib/safeText.js';
+
 export function CrimeCard({ report }) {
   const c = report.crime;
   if (!c) return null;
@@ -22,13 +24,16 @@ export function CrimeCard({ report }) {
       {c.categoryBreakdown && c.categoryBreakdown.length > 0 && (
         <div className="space-y-1.5 border-t border-cream-200 pt-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
-            Top categories ({c.latestMonth})
+            Top categories ({safeText(c.latestMonth)})
           </p>
           <ul className="space-y-1">
-            {c.categoryBreakdown.slice(0, 6).map((cat) => (
-              <li key={cat.category} className="flex items-center justify-between text-sm">
-                <span className="text-slate-700">{cat.label}</span>
-                <span className="font-semibold tabular-nums text-ink">{cat.count}</span>
+            {c.categoryBreakdown.slice(0, 6).map((cat, i) => (
+              <li
+                key={safeText(cat.category, `cat-${i}`)}
+                className="flex items-center justify-between text-sm"
+              >
+                <span className="text-slate-700">{safeText(cat.label)}</span>
+                <span className="font-semibold tabular-nums text-ink">{cat.count ?? 0}</span>
               </li>
             ))}
           </ul>
@@ -93,25 +98,36 @@ export function SchoolsCard({ report }) {
         </p>
       ) : (
         <ul className="space-y-2">
-          {list.slice(0, 6).map((sch, i) => (
-            <li key={i} className="rounded-xl bg-cream-50 p-3 text-sm">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p className="font-semibold text-ink">{sch.name}</p>
-                {sch.ofstedRating && (
-                  <span className={`pill-${ofstedTone(sch.ofstedRating)}`}>
-                    <Dot tone={ofstedTone(sch.ofstedRating)} />
-                    {sch.ofstedRating}
-                  </span>
+          {list.slice(0, 6).map((sch, i) => {
+            const name = safeText(sch.name, '(unnamed school)');
+            const phaseOrType = safeText(sch.phase || sch.type, '');
+            const ageRange = safeText(sch.ageRange, '');
+            const ofsted = safeText(sch.ofstedRating, '');
+            const subtitle = [
+              phaseOrType,
+              ageRange ? `ages ${ageRange}` : '',
+              sch.distanceMiles != null ? `${Number(sch.distanceMiles).toFixed(2)} mi` : '',
+            ]
+              .filter(Boolean)
+              .join(' · ');
+            return (
+              <li key={i} className="rounded-xl bg-cream-50 p-3 text-sm">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="font-semibold text-ink">{name}</p>
+                  {ofsted && (
+                    <span className={`pill-${ofstedTone(ofsted)}`}>
+                      <Dot tone={ofstedTone(ofsted)} />
+                      {ofsted}
+                    </span>
+                  )}
+                </div>
+                {subtitle && <p className="text-xs text-slate-600">{subtitle}</p>}
+                {sch.address && (
+                  <p className="mt-0.5 text-xs text-slate-500">{safeText(sch.address)}</p>
                 )}
-              </div>
-              <p className="text-xs text-slate-600">
-                {sch.phase || sch.type || ''}
-                {sch.ageRange ? ` · ages ${sch.ageRange}` : ''}
-                {sch.distanceMiles != null ? ` · ${sch.distanceMiles.toFixed(2)} mi` : ''}
-              </p>
-              {sch.address && <p className="mt-0.5 text-xs text-slate-500">{sch.address}</p>}
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </CardShell>
@@ -136,10 +152,10 @@ export function TransportCard({ report }) {
       {closest ? (
         <div className="rounded-xl bg-cream-50 p-3">
           <p className="text-xs uppercase tracking-wider text-slate-500">Closest station</p>
-          <p className="font-display text-lg font-bold text-ink">{closest.name}</p>
+          <p className="font-display text-lg font-bold text-ink">{safeText(closest.name, 'Unnamed')}</p>
           <p className="text-xs text-slate-600">
-            {closest.type}
-            {closest.operator ? ` · ${closest.operator}` : ''}
+            {safeText(closest.type, 'Station')}
+            {closest.operator ? ` · ${safeText(closest.operator)}` : ''}
             {closest.distanceMeters != null
               ? ` · ${closest.distanceMeters}m (${t.walkTimeMinutesToClosestStation} min walk)`
               : ''}
@@ -158,9 +174,10 @@ export function TransportCard({ report }) {
             {t.stations.slice(1, 6).map((s, i) => (
               <li key={i} className="flex items-center justify-between text-xs">
                 <span className="text-slate-700">
-                  {s.name} <span className="text-slate-400">· {s.type}</span>
+                  {safeText(s.name, 'Unnamed')}{' '}
+                  <span className="text-slate-400">· {safeText(s.type, 'Station')}</span>
                 </span>
-                <span className="tabular-nums text-slate-500">{s.distanceMeters}m</span>
+                <span className="tabular-nums text-slate-500">{s.distanceMeters ?? '?'}m</span>
               </li>
             ))}
           </ul>
@@ -201,10 +218,12 @@ export function FoodHygieneCard({ report }) {
           {list.slice(0, 6).map((e, i) => (
             <li key={i} className="flex items-baseline justify-between gap-2 text-sm">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-ink">{e.name}</p>
-                <p className="truncate text-xs text-slate-500">{e.type}</p>
+                <p className="truncate font-medium text-ink">{safeText(e.name, '(unnamed)')}</p>
+                <p className="truncate text-xs text-slate-500">{safeText(e.type, '')}</p>
               </div>
-              <span className={`pill-${ratingTone(e.rating)} shrink-0`}>{e.rating}</span>
+              <span className={`pill-${ratingTone(e.rating)} shrink-0`}>
+                {safeText(e.rating, '?')}
+              </span>
             </li>
           ))}
         </ul>
