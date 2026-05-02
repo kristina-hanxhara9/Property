@@ -480,19 +480,28 @@ function MarketCard({ report }) {
           mono
         />
       )}
-      <Field label="Median annual earnings" value={m.avgHouseholdIncome} />
+      <Field
+        label={`Median annual earnings${m.earningsTime ? ` · ${m.earningsTime}` : ''}`}
+        value={m.avgHouseholdIncome}
+      />
       {m.medianWeeklyEarnings != null && (
         <Field
-          label={`Median weekly pay${m.earningsTime ? ` (${m.earningsTime})` : ''}`}
+          label="Median weekly pay (full-time, residence)"
           value={`£${m.medianWeeklyEarnings.toFixed(2)}`}
           mono
         />
       )}
-      <Field label="Population trend" value={m.populationGrowthTrend} />
+      <Field
+        label={`Population trend${m.populationGrowthTrend && m.populationGrowthTrend !== 'Unknown' ? ' · 5yr window' : ''}`}
+        value={m.populationGrowthTrend}
+      />
       {m.populationLatest && (
         <Field label="Population (latest)" value={m.populationLatest.toLocaleString('en-GB')} mono />
       )}
-      <Field label="Employment rate" value={m.employmentRate} />
+      <Field
+        label={`Employment rate${m.employmentTime ? ` · ${m.employmentTime}` : ''}`}
+        value={m.employmentRate}
+      />
       {m.unemploymentRate != null && (
         <Field label="Unemployment rate (16-64)" value={`${m.unemploymentRate.toFixed(1)}%`} mono />
       )}
@@ -536,6 +545,14 @@ function MarketCard({ report }) {
             <span className="block text-slate-600">UK headline rental price index, monthly.</span>
           </a>
         )}
+      </div>
+
+      <div className="border-t border-cream-200 pt-3 text-[11px] leading-relaxed text-slate-500">
+        <p className="font-semibold uppercase tracking-wider text-slate-500">Data freshness</p>
+        <p className="mt-1">
+          Earnings (ASHE) updated annually each Nov · Employment (APS) updated quarterly · Population
+          updated annually each Jun/Jul · IMD 2019 is the latest published; IMD 2025 not yet released.
+        </p>
       </div>
     </CardShell>
   );
