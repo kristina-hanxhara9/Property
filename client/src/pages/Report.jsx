@@ -13,6 +13,7 @@ import {
   AvmAgentCard,
   ConstructionCostAgentCard,
   AdverseMediaAgentCard,
+  VatLookupAgentCard,
 } from '../components/AiAgentCards.jsx';
 import { apiUrl } from '../lib/api.js';
 
@@ -128,7 +129,12 @@ export default function Report({
             </>
           )}
 
-          {reportType === 'company' && <AdverseMediaAgentCard report={report} />}
+          {reportType === 'company' && (
+            <>
+              <AdverseMediaAgentCard report={report} />
+              <VatLookupAgentCard report={report} />
+            </>
+          )}
 
           <FlagsList flags={report.flags} />
 

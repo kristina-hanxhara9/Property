@@ -4,6 +4,8 @@
 // The output JSON shape matches what the property/company analysis prompts
 // instruct Claude to return.
 
+import { describeSic } from './sicCodes.js';
+
 export function buildPropertyFallbackReport({ address, postcode, rawData }) {
   const meta = rawData?.meta || {};
   const planning = rawData?.planning?.constraints || {};
@@ -833,7 +835,7 @@ export function buildCompanyFallbackReport({ companyInput, rawData }) {
       registeredAddress: formatAddress(profile.registered_office_address),
       sicCodes: (profile.sic_codes || []).map((c) => ({
         code: c,
-        description: 'See Companies House for full description',
+        description: describeSic(c) || 'See Companies House for full description',
       })),
     },
 
@@ -877,6 +879,8 @@ export function buildCompanyFallbackReport({ companyInput, rawData }) {
     },
 
     sanctions: rawData?.sanctions || null,
+    propertyHoldings: rawData?.propertyHoldings || null,
+    propertyHoldingsError: rawData?.propertyHoldingsError || null,
     propertyHoldingsLinks: buildPropertyHoldingsLinks(profile.company_number, profile.company_name),
 
     flags: addSanctionsFlags(flags, rawData?.sanctions),

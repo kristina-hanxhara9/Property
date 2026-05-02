@@ -93,16 +93,62 @@ function SanctionsCard({ report }) {
 }
 
 function PropertyHoldingsCard({ report }) {
+  const holdings = report.propertyHoldings;
+  const error = report.propertyHoldingsError;
   const links = report.propertyHoldingsLinks || [];
-  if (links.length === 0) return null;
+
+  const ccodMatches = holdings?.ccod?.properties || [];
+  const ocodMatches = holdings?.ocod?.properties || [];
+  const totalMatches = (holdings?.ccod?.matchCount || 0) + (holdings?.ocod?.matchCount || 0);
+
   return (
-    <CardShell title="UK property holdings & filings" source="Source: Land Registry CCOD/OCOD + Companies House">
-      <p className="text-xs text-slate-600">
-        UK property owned by this company can be cross-referenced against the Land Registry's free
-        monthly bulk datasets. Search the CSV for the company's registered number to list every
-        title held.
-      </p>
-      <div className="space-y-1.5">
+    <CardShell
+      title="UK property holdings (live data)"
+      source="Source: Land Registry CCOD + OCOD bulk datasets"
+    >
+      {holdings && totalMatches > 0 ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-700">{totalMatches} title(s) registered to this company</span>
+            <span className="pill-info">
+              CCOD {holdings.ccod?.matchCount || 0} · OCOD {holdings.ocod?.matchCount || 0}
+            </span>
+          </div>
+          {ccodMatches.length > 0 && (
+            <PropertyHoldingsList
+              kind="UK Companies (CCOD)"
+              month={holdings.ccod?.month}
+              records={ccodMatches}
+            />
+          )}
+          {ocodMatches.length > 0 && (
+            <PropertyHoldingsList
+              kind="Overseas Companies (OCOD)"
+              month={holdings.ocod?.month}
+              records={ocodMatches}
+            />
+          )}
+        </div>
+      ) : holdings && totalMatches === 0 ? (
+        <p className="text-sm text-slate-600">
+          No UK title found in the latest CCOD ({holdings.ccod?.month || 'n/a'}) or OCOD (
+          {holdings.ocod?.month || 'n/a'}) datasets for this company number.
+        </p>
+      ) : (
+        <div className="rounded-xl border border-warn-bg bg-warn-bg/30 p-3 text-xs">
+          <p className="font-semibold text-warn-text">Could not auto-fetch CCOD/OCOD</p>
+          <p className="mt-1 text-slate-700">
+            {safeText(
+              error || 'The Land Registry download URL likely requires session/CSRF tokens. Use the manual link below.',
+            )}
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-1.5 border-t border-cream-200 pt-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
+          Manual sources
+        </p>
         {links.map((l) => (
           <a
             key={l.url}
@@ -117,6 +163,31 @@ function PropertyHoldingsCard({ report }) {
         ))}
       </div>
     </CardShell>
+  );
+}
+
+function PropertyHoldingsList({ kind, month, records }) {
+  return (
+    <div className="rounded-xl bg-cream-50 p-3">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-claude-700">
+        {safeText(kind)} {month ? `· ${safeText(month).replace('_', '/')}` : ''}
+      </p>
+      <ul className="space-y-1.5 text-xs">
+        {records.slice(0, 8).map((r, i) => (
+          <li key={i} className="rounded-lg bg-white p-2 ring-1 ring-cream-200">
+            {Object.entries(r).slice(0, 4).map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-2">
+                <span className="text-slate-500">{k}</span>
+                <span className="font-medium text-ink">{safeText(v)}</span>
+              </div>
+            ))}
+          </li>
+        ))}
+        {records.length > 8 && (
+          <li className="text-slate-500">… and {records.length - 8} more</li>
+        )}
+      </ul>
+    </div>
   );
 }
 

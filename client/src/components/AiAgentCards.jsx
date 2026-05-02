@@ -179,6 +179,98 @@ function ConstructionCostResult({ data }) {
   );
 }
 
+export function VatLookupAgentCard({ report }) {
+  const body = {
+    companyName: report?.companyProfile?.officialName || report?.queryInput,
+    companyNumber: report?.companyProfile?.companyNumber,
+  };
+  return (
+    <AgentRunnerCard
+      title="VAT registration lookup"
+      subtitle="Searches gov.uk, EU VIES, and Companies House filings for the company's UK VAT registration number and current status. Replaces the empty VAT card with real data — only when found."
+      endpoint="/api/vat-lookup"
+      body={body}
+      eventName="vat-lookup"
+      buttonLabel="Run VAT lookup"
+      noteCost="~$0.05–0.10 per run"
+      caveats={[
+        'Reports "not found" honestly — never guesses a VAT number.',
+        'For authoritative real-time verification of an active VAT number, use the GOV.UK Check VAT number tool directly.',
+      ]}
+      renderResult={(d) => <VatLookupResult data={d} />}
+    />
+  );
+}
+
+function VatLookupResult({ data }) {
+  if (!data.found) {
+    return (
+      <div className="rounded-xl border border-warn-bg bg-warn-bg/40 p-3 text-sm">
+        <p className="font-semibold text-warn-text">VAT number not found</p>
+        <p className="mt-1 text-xs text-slate-700">{safeText(data.explanation)}</p>
+        {data.searchQueriesUsed && (
+          <p className="mt-1 text-xs text-slate-500">
+            Tried: {data.searchQueriesUsed.map((q) => `"${q}"`).join(' · ')}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <p className="text-xs text-slate-500">VAT number</p>
+          <p className="font-display text-lg font-bold tabular-nums text-ink">
+            {safeText(data.vatNumber)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">Status</p>
+          <p className="font-semibold text-ink">
+            {data.verifiedActive ? '✓ Verified active' : 'Found, not verified active'}
+          </p>
+        </div>
+      </div>
+      {data.vatRegisteredName && (
+        <div className="rounded-xl bg-cream-50 p-2 text-sm">
+          <p className="text-xs text-slate-500">Registered name</p>
+          <p className="font-medium text-ink">{safeText(data.vatRegisteredName)}</p>
+        </div>
+      )}
+      {data.vatAddress && (
+        <div className="rounded-xl bg-cream-50 p-2 text-sm">
+          <p className="text-xs text-slate-500">Registered address</p>
+          <p className="font-medium text-ink">{safeText(data.vatAddress)}</p>
+        </div>
+      )}
+      {data.explanation && (
+        <p className="text-xs text-slate-600">{safeText(data.explanation)}</p>
+      )}
+      {(data.sources || []).length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">Sources</p>
+          <ul className="space-y-0.5 text-xs">
+            {data.sources.map((s, i) => (
+              <li key={i}>
+                <a
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-claude-700 hover:underline"
+                >
+                  {safeText(s.publisher || s.url)} ↗
+                </a>
+                {s.snippet && <span className="ml-1 text-slate-500">— "{safeText(s.snippet)}"</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdverseMediaAgentCard({ report }) {
   const body = {
     companyName: report?.companyProfile?.officialName || report?.queryInput,

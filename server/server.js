@@ -10,6 +10,7 @@ import { fetchPlanningConstraints } from './apis/planningData.js';
 import { fetchFloodRisk } from './apis/floodRisk.js';
 import { searchCompanies, fetchCompanyBundle } from './apis/companiesHouse.js';
 import { checkSanctions } from './apis/sanctions.js';
+import { searchCorporatePropertyHoldings } from './apis/ccod.js';
 import { fetchEpcByPostcode, pickBestEpc } from './apis/epc.js';
 import { fetchPlanningApplications } from './apis/planit.js';
 import { buildPropertyDocx, buildCompanyDocx } from './apis/docxExport.js';
@@ -51,6 +52,8 @@ import {
   buildAdverseMediaUserMessage,
   CONSTRUCTION_COST_SYSTEM_PROMPT,
   buildConstructionCostUserMessage,
+  VAT_LOOKUP_SYSTEM_PROMPT,
+  buildVatUserMessage,
 } from './prompts/aiAgents.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -578,6 +581,13 @@ app.post('/api/company-check', async (req, res) => {
       .map((o) => ({ name: o.name, schema: 'Person', role: 'Director' })),
   ].filter((t) => t.name);
 
+  const ccodStep = await runStep(
+    res,
+    'ccod',
+    'Land Registry CCOD/OCOD — UK property holdings lookup (free)',
+    () => searchCorporatePropertyHoldings(bundle.profile?.company_number),
+  );
+
   const sanctionsStep = await runStep(
     res,
     'sanctions',
@@ -614,6 +624,8 @@ app.post('/api/company-check', async (req, res) => {
     searchResults,
     ...bundle,
     sanctions: sanctionsResult,
+    propertyHoldings: ccodStep.value || null,
+    propertyHoldingsError: ccodStep.ok ? null : ccodStep.error,
     meta: { apisQueried, apisSuccessful, apisFailed: [...apisFailed, ...apisFailedExtra] },
   };
 
@@ -908,6 +920,30 @@ app.post('/api/adverse-media', async (req, res) => {
     maxUses: 8,
     eventName: 'adverse-media',
     label: 'Adverse media agent — Claude + web search (FT/Guardian/BBC/Property Week/etc.)',
+  });
+});
+
+app.post('/api/vat-lookup', async (req, res) => {
+  const { companyName, companyNumber } = req.body || {};
+  if (!companyName) {
+    res.status(400).json({ error: 'companyName required' });
+    return;
+  }
+  await runWebSearchAgent(res, {
+    systemPrompt: VAT_LOOKUP_SYSTEM_PROMPT,
+    userMessage: buildVatUserMessage({ companyName, companyNumber }),
+    allowedDomains: [
+      'gov.uk',
+      'tax.service.gov.uk',
+      'find-and-update.company-information.service.gov.uk',
+      'europa.eu',
+      // Many companies publish their VAT number in the footer of their site;
+      // allowing all domains too would be useful but is too broad — Claude
+      // will use search to find the company's site via gov.uk hits anyway.
+    ],
+    maxUses: 6,
+    eventName: 'vat-lookup',
+    label: 'VAT lookup agent — Claude + web search (gov.uk + EU VIES)',
   });
 });
 
