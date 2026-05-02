@@ -751,7 +751,18 @@ function MarketCard({ report }) {
       )}
       <Field label="Avg rental yield" value={m.avgRentalYield} />
       <Field label="Avg rent" value={m.avgRent} />
-      <Field label="Demand rating" value={m.demandRating} />
+      <Field label="Demand rating (composite proxy)" value={m.demandRating} />
+      {m.demandComponents?.length > 0 && (
+        <div className="rounded-lg bg-claude-50 p-2 text-[11px] leading-relaxed text-slate-700">
+          <p className="font-semibold text-claude-700">How the demand score was built</p>
+          <ul className="mt-1 list-disc pl-4">
+            {m.demandComponents.map((c, i) => (
+              <li key={i}>{c}</li>
+            ))}
+          </ul>
+          {m.demandNote && <p className="mt-1.5 italic text-slate-500">{m.demandNote}</p>}
+        </div>
+      )}
       <div className="space-y-1.5 border-t border-cream-200 pt-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
           Authoritative sources

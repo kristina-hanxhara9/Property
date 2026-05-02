@@ -420,6 +420,69 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
   return report;
 }
 
+// Composite demand proxy from free data. Heavier weight on signals
+// that move with rental + sale demand. NOT equivalent to Hometrack /
+// Zoopla demand indices which use actual inquiry data.
+function buildDemandIndicator({ imd, nomis, postcodeData }) {
+  let score = 5; // Start neutral
+  const components = [];
+
+  // 1. Deprivation decile (1-10, higher = less deprived = more demand).
+  if (imd?.decile != null) {
+    const d = imd.decile;
+    score += (d - 5) * 0.3; // +/- 1.5 points
+    components.push(`IMD decile ${d}/10 → ${d >= 7 ? '+' : d <= 3 ? '-' : '~'}`);
+  }
+
+  // 2. Population growth (Growing = demand pressure).
+  if (nomis?.populationGrowthTrend === 'Growing') {
+    score += 1.5;
+    components.push(`population ${nomis.populationGrowthPct} → +`);
+  } else if (nomis?.populationGrowthTrend === 'Declining') {
+    score -= 1.5;
+    components.push(`population ${nomis.populationGrowthPct} → -`);
+  }
+
+  // 3. Employment rate (higher = more renters with income).
+  if (nomis?.employment?.employmentRate != null) {
+    const e = nomis.employment.employmentRate;
+    if (e > 78) {
+      score += 1;
+      components.push(`employment ${e.toFixed(1)}% → +`);
+    } else if (e < 70) {
+      score -= 1;
+      components.push(`employment ${e.toFixed(1)}% → -`);
+    }
+  }
+
+  // 4. Region — London / South East commuter belt typically higher demand.
+  const region = postcodeData?.region || '';
+  if (/London|South East/i.test(region)) {
+    score += 1;
+    components.push('region (London/SE) → +');
+  } else if (/North East|Wales/i.test(region)) {
+    score -= 0.5;
+    components.push(`region (${region}) → -`);
+  }
+
+  score = Math.max(1, Math.min(10, score));
+
+  let demandRating;
+  if (score >= 7.5) demandRating = `High (${score.toFixed(1)}/10)`;
+  else if (score >= 5.5) demandRating = `Above average (${score.toFixed(1)}/10)`;
+  else if (score >= 4.5) demandRating = `Average (${score.toFixed(1)}/10)`;
+  else if (score >= 3) demandRating = `Below average (${score.toFixed(1)}/10)`;
+  else demandRating = `Low (${score.toFixed(1)}/10)`;
+
+  return {
+    demandRating,
+    demandScore: Number(score.toFixed(1)),
+    demandComponents: components,
+    demandNote:
+      'Composite proxy from free data (deprivation × population × employment × region). For inquiry-volume-based demand, Hometrack/Zoopla DemandView are the paid sources.',
+  };
+}
+
 function buildPremiumDataNote() {
   // Documented list of valuable property data points that require paid
   // third-party services. We surface them so the user knows what's missing
@@ -572,7 +635,6 @@ function buildEpcSummary(epcMatch, epcResult) {
 
 function buildMarketContext({ postcodeData, lpaName, imd, onsRental, nomis }) {
   const demo = imd?.demographics || null;
-
   // Income — Nomis ASHE residence-based median weekly pay → annualised
   let avgHouseholdIncome = 'Unknown';
   let medianWeeklyEarnings = null;
@@ -629,9 +691,13 @@ function buildMarketContext({ postcodeData, lpaName, imd, onsRental, nomis }) {
     deprivationDecile: imd?.decile ?? null,
     deprivationScore: imd?.score ?? null,
     deprivationRank: imd?.rank ?? null,
-    avgRentalYield: 'See market comparables tool',
-    avgRent: 'See market comparables tool',
-    demandRating: 'Unknown',
+    avgRentalYield: 'Run Market Comparables agent below',
+    avgRent: 'Run Market Comparables agent below',
+    // Composite demand indicator derived from free data we already have.
+    // Each component contributes to a 0-10 score. Honest about being a
+    // proxy — paid services use actual inquiry/click volume which we
+    // can't replicate.
+    ...buildDemandIndicator({ imd, nomis, postcodeData }),
   };
 
   if (onsRental?.indexValue != null) {

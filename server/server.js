@@ -508,6 +508,172 @@ app.post('/api/property-check', async (req, res) => {
   res.end();
 });
 
+// Sales-in-area lookup. Given a lat/lng (and optionally a radius), find the
+// nearest postcodes via Postcodes.io reverse-geocode, then pull Land Registry
+// Price Paid for each. Returns up to ~limit transactions with lat/lng so the
+// map view can drop colour-coded sale pins.
+app.post('/api/sales-in-area', async (req, res) => {
+  try {
+    const {
+      latitude,
+      longitude,
+      radiusMeters = 1000,
+      maxPostcodes = 20,
+      limitPerPostcode = 15,
+    } = req.body || {};
+
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      res.status(400).json({ error: 'latitude and longitude required as numbers.' });
+      return;
+    }
+
+    // Postcodes.io supports radius up to 2000m. Clamp to be safe.
+    const radius = Math.min(2000, Math.max(100, Number(radiusMeters) || 1000));
+    const limit = Math.min(100, Math.max(1, Number(maxPostcodes) || 20));
+
+    const pcRes = await fetch(
+      `https://api.postcodes.io/postcodes?lon=${lng}&lat=${lat}&radius=${radius}&limit=${limit}`,
+    );
+    if (!pcRes.ok) {
+      res.status(502).json({ error: `Postcodes.io returned ${pcRes.status}` });
+      return;
+    }
+    const pcBody = await pcRes.json();
+    const postcodes = (pcBody?.result || []).map((r) => ({
+      postcode: r.postcode,
+      latitude: r.latitude,
+      longitude: r.longitude,
+    }));
+
+    if (postcodes.length === 0) {
+      res.json({ count: 0, sales: [], postcodes: [], radiusMeters: radius });
+      return;
+    }
+
+    // Cap parallel requests to be polite to Land Registry.
+    const results = await Promise.allSettled(
+      postcodes.map((pc) =>
+        fetchPricePaidByPostcode(pc.postcode, { limit: limitPerPostcode }).then((r) => ({
+          ...r,
+          centroid: { latitude: pc.latitude, longitude: pc.longitude },
+        })),
+      ),
+    );
+
+    const sales = [];
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      const { postcode, transactions, centroid } = r.value;
+      for (const tx of transactions || []) {
+        sales.push({
+          postcode,
+          // Postcode centroid is the best free locator — no per-property lat/lng
+          // exists in Price Paid Data. Pins will overlap on the same street.
+          latitude: centroid.latitude,
+          longitude: centroid.longitude,
+          price: tx.pricePaid,
+          date: tx.transactionDate,
+          propertyType: tx.propertyType,
+          tenure: tx.estateType,
+          newBuild: tx.newBuild,
+          address: [
+            tx.address?.saon,
+            tx.address?.paon,
+            tx.address?.street,
+            tx.address?.town,
+            tx.address?.postcode,
+          ]
+            .filter(Boolean)
+            .join(', '),
+        });
+      }
+    }
+
+    sales.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    res.json({
+      count: sales.length,
+      postcodes: postcodes.map((p) => p.postcode),
+      sales: sales.slice(0, 500), // hard cap so we don't blow up the JSON payload
+      radiusMeters: radius,
+      centroid: { latitude: lat, longitude: lng },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err?.message || 'Sales-in-area lookup failed' });
+  }
+});
+
+// IMD heatmap. Pull nearby postcodes, then look up the IMD decile for each
+// via findthatpostcode.uk in parallel. Returns one circle per postcode for
+// the map to colour by decile (red = deprived, green = least deprived).
+app.post('/api/area-imd', async (req, res) => {
+  try {
+    const { latitude, longitude, radiusMeters = 1500, maxPostcodes = 80 } = req.body || {};
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      res.status(400).json({ error: 'latitude and longitude required as numbers.' });
+      return;
+    }
+    const radius = Math.min(2000, Math.max(100, Number(radiusMeters) || 1500));
+    const limit = Math.min(100, Math.max(1, Number(maxPostcodes) || 80));
+
+    const pcRes = await fetch(
+      `https://api.postcodes.io/postcodes?lon=${lng}&lat=${lat}&radius=${radius}&limit=${limit}`,
+    );
+    if (!pcRes.ok) {
+      res.status(502).json({ error: `Postcodes.io returned ${pcRes.status}` });
+      return;
+    }
+    const pcBody = await pcRes.json();
+    const postcodes = (pcBody?.result || []).map((r) => ({
+      postcode: r.postcode,
+      latitude: r.latitude,
+      longitude: r.longitude,
+    }));
+
+    if (postcodes.length === 0) {
+      res.json({ count: 0, points: [], radiusMeters: radius });
+      return;
+    }
+
+    // Parallel — but capped to keep findthatpostcode happy.
+    const concurrency = 8;
+    const points = [];
+    for (let i = 0; i < postcodes.length; i += concurrency) {
+      const slice = postcodes.slice(i, i + concurrency);
+      const lookups = await Promise.allSettled(
+        slice.map((pc) =>
+          fetchPostcodeDemographics(pc.postcode).then((d) => ({
+            postcode: pc.postcode,
+            latitude: pc.latitude,
+            longitude: pc.longitude,
+            imdDecile: d?.imdDecile ?? null,
+            imdScore: d?.imdScore ?? null,
+            adminDistrict: d?.adminDistrict || null,
+          })),
+        ),
+      );
+      for (const r of lookups) {
+        if (r.status === 'fulfilled' && r.value.imdDecile != null) {
+          points.push(r.value);
+        }
+      }
+    }
+
+    res.json({
+      count: points.length,
+      points,
+      radiusMeters: radius,
+      centroid: { latitude: lat, longitude: lng },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err?.message || 'IMD area lookup failed' });
+  }
+});
+
 app.post('/api/company-check', async (req, res) => {
   const { companyName, companyNumber } = req.body || {};
   if (!companyName && !companyNumber) {
