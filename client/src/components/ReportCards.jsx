@@ -455,8 +455,13 @@ function MarketCard({ report }) {
   const m = report.marketContext || {};
   const idx = m.ukRentalIndex;
   return (
-    <CardShell title="Market context" source="Source: ONS / Land Registry HPI">
+    <CardShell title="Market context" source="Source: ONS / findthatpostcode.uk / Land Registry HPI">
       <Field label="Local authority" value={m.localAuthority} />
+      {m.parliamentaryConstituency && (
+        <Field label="Parliamentary constituency" value={m.parliamentaryConstituency} />
+      )}
+      {m.region && <Field label="Region" value={m.region} />}
+      {m.areaType && <Field label="Area type" value={m.areaType} />}
       <Field
         label="Deprivation decile (IMD 2019)"
         value={
@@ -465,6 +470,9 @@ function MarketCard({ report }) {
             : 'Unknown'
         }
       />
+      {m.deprivationRank != null && (
+        <Field label="Deprivation rank (England)" value={`${m.deprivationRank} of ~32,844`} mono />
+      )}
       {idx && (
         <Field
           label={`UK rental price index (${idx.time || 'latest'})`}

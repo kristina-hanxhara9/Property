@@ -479,13 +479,20 @@ function buildEpcSummary(epcMatch, epcResult) {
 }
 
 function buildMarketContext({ postcodeData, lpaName, imd, onsRental }) {
+  const demo = imd?.demographics || null;
+
   const ctx = {
-    localAuthority: postcodeData?.adminDistrict || lpaName || 'Unknown',
+    localAuthority: postcodeData?.adminDistrict || demo?.adminDistrict || lpaName || 'Unknown',
+    parliamentaryConstituency:
+      postcodeData?.parliamentaryConstituency || demo?.parliamentaryConstituency || null,
+    region: postcodeData?.region || null,
+    ruralUrban: demo?.ruralUrban || null,
     avgHouseholdIncome: 'Unknown',
     populationGrowthTrend: 'Unknown',
     employmentRate: 'Unknown',
     deprivationDecile: imd?.decile ?? null,
     deprivationScore: imd?.score ?? null,
+    deprivationRank: imd?.rank ?? null,
     avgRentalYield: 'See market comparables tool',
     avgRent: 'See market comparables tool',
     demandRating: 'Unknown',
@@ -511,6 +518,23 @@ function buildMarketContext({ postcodeData, lpaName, imd, onsRental }) {
         : imd.decile <= 8
         ? 'Above median (less deprived)'
         : 'Least deprived 20% nationally';
+  }
+
+  if (demo?.ruralUrban) {
+    // ONS rural/urban classification codes (A1-F2) → human label
+    const ruMap = {
+      A1: 'Major urban',
+      B1: 'Large urban',
+      C1: 'Other urban',
+      C2: 'Other urban',
+      D1: 'Rural town & fringe',
+      D2: 'Rural town & fringe',
+      E1: 'Rural village',
+      E2: 'Rural village',
+      F1: 'Rural hamlet & isolated',
+      F2: 'Rural hamlet & isolated',
+    };
+    ctx.areaType = ruMap[demo.ruralUrban] || demo.ruralUrban;
   }
 
   return ctx;

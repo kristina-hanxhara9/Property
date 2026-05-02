@@ -21,7 +21,8 @@
 // are, use the old Basic-auth flow against epc.opendatacommunities.org.
 
 const NEW_BASE = 'https://api.get-energy-performance-data.communities.gov.uk';
-const NEW_SEARCH_PATH = '/api/domestic/search';
+const NEW_DOMESTIC_SEARCH_PATH = '/api/domestic/search';
+const NEW_NON_DOMESTIC_SEARCH_PATH = '/api/non-domestic/search';
 const NEW_CERT_PATH = '/api/certificate';
 const LEGACY_BASE = 'https://epc.opendatacommunities.org/api/v1/domestic/search';
 
@@ -44,7 +45,7 @@ export async function fetchEpcByPostcode(
       addressFragment,
       auth: buildBearerAuth(bearerToken),
       baseUrl: baseUrl || NEW_BASE,
-      searchPath: searchPath || NEW_SEARCH_PATH,
+      searchPath: searchPath || null, // null means try both domestic + non-domestic
       postcodeParam: postcodeParam || 'postcode',
     });
   }
@@ -72,59 +73,86 @@ async function fetchViaNewService({
   searchPath,
   postcodeParam,
 }) {
-  // Step 1: search by postcode
-  const searchUrl = new URL(`${baseUrl}${searchPath}`);
-  searchUrl.searchParams.set(postcodeParam, postcode);
+  // Try domestic and non-domestic search endpoints in turn so commercial
+  // properties (e.g. 1 Canada Square) also resolve. If `searchPath` is
+  // explicitly set via env var, use only that one.
+  const pathsToTry = searchPath
+    ? [searchPath]
+    : [NEW_DOMESTIC_SEARCH_PATH, NEW_NON_DOMESTIC_SEARCH_PATH];
 
-  const searchRes = await fetch(searchUrl, {
-    headers: { ...auth, Accept: 'application/json' },
-  });
+  let allRecords = [];
+  let firstError = null;
+  let domesticHit = false;
+  let nonDomesticHit = false;
+  let pagination = null;
+  let rawResponses = {};
 
-  if (searchRes.status === 401 || searchRes.status === 403) {
-    let body = '';
+  for (const path of pathsToTry) {
+    const searchUrl = new URL(`${baseUrl}${path}`);
+    searchUrl.searchParams.set(postcodeParam, postcode);
+
+    let res;
     try {
-      body = await searchRes.text();
-    } catch {
-      /* ignore */
+      res = await fetch(searchUrl, { headers: { ...auth, Accept: 'application/json' } });
+    } catch (err) {
+      firstError ||= err;
+      continue;
     }
-    throw new Error(
-      `EPC API ${searchRes.status} (Bearer auth, ${searchUrl.host}): ${body.slice(0, 200).replace(/\s+/g, ' ').trim() || 'Not authorized'}`,
-    );
-  }
-  if (searchRes.status === 404) {
-    // 404 from the search endpoint means no matches for this postcode
-    return { configured: true, authStyle: 'bearer-new', count: 0, results: [], detail: null };
-  }
-  if (searchRes.status === 429) {
-    throw new Error('EPC API rate-limited (429). Back off and retry.');
-  }
-  if (!searchRes.ok) {
-    let body = '';
-    try {
-      body = await searchRes.text();
-    } catch {
-      /* ignore */
+
+    if (res.status === 401 || res.status === 403) {
+      let body = '';
+      try {
+        body = await res.text();
+      } catch {
+        /* ignore */
+      }
+      throw new Error(
+        `EPC API ${res.status} (Bearer auth, ${searchUrl.host}): ${body.slice(0, 200).replace(/\s+/g, ' ').trim() || 'Not authorized'}`,
+      );
     }
-    throw new Error(
-      `EPC search ${searchRes.status} from ${searchUrl.host}: ${body.slice(0, 200).replace(/\s+/g, ' ').trim()}`,
-    );
+    if (res.status === 429) throw new Error('EPC API rate-limited (429). Back off and retry.');
+    if (res.status === 404) {
+      // No records for this path — keep trying other paths
+      continue;
+    }
+    if (!res.ok) {
+      let body = '';
+      try {
+        body = await res.text();
+      } catch {
+        /* ignore */
+      }
+      firstError ||= new Error(
+        `EPC search ${res.status} from ${searchUrl.host}${path}: ${body.slice(0, 200).replace(/\s+/g, ' ').trim()}`,
+      );
+      continue;
+    }
+
+    const body = await res.json();
+    const records = extractRecords(body);
+
+    if (records.length > 0) {
+      // Tag each record with which kind of certificate it came from
+      const kind = path.includes('non-domestic')
+        ? 'non-domestic'
+        : path.includes('display')
+        ? 'display'
+        : 'domestic';
+      if (kind === 'non-domestic') nonDomesticHit = true;
+      if (kind === 'domestic') domesticHit = true;
+      records.forEach((r) => (r._epcKind = kind));
+      allRecords = allRecords.concat(records);
+      pagination = pagination || body?.pagination || null;
+      rawResponses[kind] = body;
+    }
   }
 
-  const searchBody = await searchRes.json();
-  // Per docs the shape is { data: [...], pagination: {...} } but the published
-  // example has a stray brace. Tolerate both.
-  const records = Array.isArray(searchBody?.data)
-    ? searchBody.data
-    : searchBody?.data?.[0] && Array.isArray(searchBody.data)
-    ? searchBody.data
-    : Array.isArray(searchBody)
-    ? searchBody
-    : Array.isArray(searchBody?.records)
-    ? searchBody.records
-    : [];
+  if (allRecords.length === 0 && firstError) {
+    throw firstError;
+  }
 
-  // Step 2: fetch full detail for the best-matched certificate
-  const bestRecord = pickBestSearchRecord(records, addressFragment);
+  // Fetch full detail for the best-matched certificate
+  const bestRecord = pickBestSearchRecord(allRecords, addressFragment);
   let detail = null;
   let detailError = null;
   if (bestRecord?.certificateNumber) {
@@ -138,13 +166,25 @@ async function fetchViaNewService({
   return {
     configured: true,
     authStyle: 'bearer-new',
-    count: records.length,
-    pagination: searchBody?.pagination || null,
-    results: records.map(normaliseSearchRecord),
-    detail, // full object from /api/certificate, schema-dependent
+    count: allRecords.length,
+    domesticHit,
+    nonDomesticHit,
+    pagination,
+    results: allRecords.map(normaliseSearchRecord),
+    detail,
     detailError,
-    rawSearchResponse: searchBody, // pass through for raw data section
+    rawSearchResponses: rawResponses,
   };
+}
+
+function extractRecords(body) {
+  // The docs show {"data": [...]} but published examples have a typo with
+  // an extra brace. Tolerate variants.
+  if (Array.isArray(body)) return body;
+  if (Array.isArray(body?.data)) return body.data;
+  if (body?.data && Array.isArray(body.data?.records)) return body.data.records;
+  if (Array.isArray(body?.records)) return body.records;
+  return [];
 }
 
 async function fetchCertificateDetail(baseUrl, certificateNumber, auth) {

@@ -1,17 +1,66 @@
-// ONS open data integrations.
-// 1. Index of Multiple Deprivation (IMD) decile per LSOA via the
-//    opendatacommunities SPARQL endpoint (free, no key).
-// 2. Index of Private Housing Rental Prices (IPHRP) — UK headline growth
-//    rate via the ONS beta API.
+// ONS / deprivation / rental data integrations.
+//
+//   IMD (deprivation) — primary lookup via findthatpostcode.uk which
+//   wraps multiple ONS datasets and returns IMD2019 decile + score by
+//   postcode in a single clean JSON call. Free, no key.
+//   Fallback: opendatacommunities SPARQL (often returns HTML; treated
+//   as a soft failure).
+//
+//   ONS Index of Private Housing Rental Prices — UK headline value via
+//   the ONS Beta API.
 
+const FTP_BASE = 'https://findthatpostcode.uk';
 const SPARQL_ENDPOINT = 'https://opendatacommunities.org/sparql';
+const ONS_BASE = 'https://api.beta.ons.gov.uk/v1';
 
+// Primary IMD lookup — postcode-keyed, returns rich demographic metadata
+// including IMD2019 decile, deprivation score, area code, parliamentary
+// constituency, and a bundle of ONS classifications.
+export async function fetchPostcodeDemographics(postcode) {
+  if (!postcode) return null;
+  const cleaned = String(postcode).trim().replace(/\s+/g, '');
+  const url = `${FTP_BASE}/postcodes/${encodeURIComponent(cleaned)}.json`;
+
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return null;
+    const text = await res.text();
+    if (!text.trim().startsWith('{')) return null;
+    const body = JSON.parse(text);
+    const attr = body?.data?.attributes || {};
+
+    return {
+      postcode: attr.pcds || cleaned,
+      lsoa: attr.lsoa11 || null,
+      msoa: attr.msoa11 || null,
+      imdDecile:
+        numberOrNull(attr.imd2019_decile) ||
+        numberOrNull(attr.imd_decile) ||
+        numberOrNull(attr.imd2015_decile),
+      imdRank: numberOrNull(attr.imd2019_rank) || numberOrNull(attr.imd_rank),
+      imdScore: numberOrNull(attr.imd2019_score) || numberOrNull(attr.imd_score),
+      ruralUrban: attr.ru11ind || null,
+      adminCounty: attr.admin_county || null,
+      adminDistrict: attr.admin_district || null,
+      adminWard: attr.admin_ward || null,
+      parishOrCommunity: attr.parish || null,
+      parliamentaryConstituency: attr.parliamentary_constituency || null,
+      ccg: attr.ccg || null,
+      nuts: attr.nuts || null,
+      raw: body,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Legacy IMD-only lookup via SPARQL — kept as a fallback when
+// findthatpostcode is unavailable.
 export async function fetchImdDecile(lsoaCode) {
   if (!lsoaCode) return null;
 
   const query = `
     PREFIX imd: <http://opendatacommunities.org/def/IMD>
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
     SELECT ?decile ?score WHERE {
       ?obs <http://opendatacommunities.org/def/ontology/geography/refArea>
            <http://opendatacommunities.org/id/geography/lsoa/${lsoaCode}> .
@@ -22,20 +71,14 @@ export async function fetchImdDecile(lsoaCode) {
     }
     LIMIT 1
   `;
-
   const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}&output=json`;
 
   try {
     const res = await fetch(url, { headers: { Accept: 'application/sparql-results+json' } });
     if (!res.ok) return null;
-    // The endpoint occasionally returns an HTML error page. Detect that and
-    // fail gracefully rather than blowing up the whole property report.
     const text = await res.text();
-    const trimmed = text.trim();
-    if (!trimmed.startsWith('{')) {
-      return null;
-    }
-    const body = JSON.parse(trimmed);
+    if (!text.trim().startsWith('{')) return null;
+    const body = JSON.parse(text);
     const row = body?.results?.bindings?.[0];
     if (!row) return null;
     return {
@@ -46,10 +89,6 @@ export async function fetchImdDecile(lsoaCode) {
     return null;
   }
 }
-
-// ONS rental data — UK headline IPHRP growth rate (% YoY).
-// Beta API: https://api.beta.ons.gov.uk/v1
-const ONS_BASE = 'https://api.beta.ons.gov.uk/v1';
 
 export async function fetchOnsRentalGrowth() {
   const url = `${ONS_BASE}/datasets/index-private-housing-rental-prices/editions/time-series/versions/latest/observations?time=*&geography=K02000001&time_record_count=1`;
@@ -67,13 +106,11 @@ export async function fetchOnsRentalGrowth() {
       sourceUrl:
         'https://www.ons.gov.uk/economy/inflationandpriceindices/datasets/indexofprivatehousingrentalprices',
     };
-  } catch (err) {
+  } catch {
     return null;
   }
 }
 
-// ONS regional rental growth — uses region code (e.g. London E12000007).
-// Useful to give context against the local authority.
 export async function fetchOnsRegionalRentalGrowth(regionCode) {
   if (!regionCode) return null;
   const url = `${ONS_BASE}/datasets/index-private-housing-rental-prices/editions/time-series/versions/latest/observations?time=*&geography=${regionCode}&time_record_count=1`;

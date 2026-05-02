@@ -14,6 +14,7 @@ import { fetchPlanningApplications } from './apis/planit.js';
 import { buildPropertyDocx, buildCompanyDocx } from './apis/docxExport.js';
 import {
   fetchImdDecile,
+  fetchPostcodeDemographics,
   fetchOnsRentalGrowth,
   fetchOnsRegionalRentalGrowth,
 } from './apis/ons.js';
@@ -226,11 +227,27 @@ app.post('/api/property-check', async (req, res) => {
     ),
   );
   const lsoaCode = geo.value?.codes?.lsoa || null;
+  // Primary demographic + IMD lookup via findthatpostcode.uk (clean JSON,
+  // free, no key). Falls back to opendatacommunities SPARQL inside ons.js
+  // if the primary fails — both surface as the same shape for downstream.
   const imdPromise = runStep(
     res,
     'imd',
-    'ONS Index of Multiple Deprivation (free SPARQL)',
-    () => fetchImdDecile(lsoaCode),
+    'findthatpostcode.uk — IMD2019 decile + ONS demographics (free)',
+    async () => {
+      const demo = await fetchPostcodeDemographics(postcodeStr);
+      if (demo?.imdDecile != null) {
+        return {
+          decile: demo.imdDecile,
+          score: demo.imdScore,
+          rank: demo.imdRank,
+          ruralUrban: demo.ruralUrban,
+          demographics: demo,
+        };
+      }
+      // Fallback to SPARQL via LSOA
+      return await fetchImdDecile(lsoaCode);
+    },
   );
   const onsRentalPromise = runStep(
     res,
