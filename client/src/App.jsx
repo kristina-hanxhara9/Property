@@ -18,6 +18,7 @@ export default function App() {
   const [steps, setSteps] = useState([]);
   const [report, setReport] = useState(null);
   const [streamingText, setStreamingText] = useState('');
+  const [rawData, setRawData] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [error, setError] = useState(null);
@@ -38,6 +39,7 @@ export default function App() {
       setQuery(input);
       setSteps([]);
       setReport(null);
+      setRawData(null);
       setStreamingText('');
       setError(null);
       setIsStreaming(true);
@@ -68,6 +70,9 @@ export default function App() {
             step: (data) => updateStep(data),
             'partial-data': () => {
               // Optional: render partial card data here
+            },
+            'raw-data': (data) => {
+              if (data?.rawData) setRawData(data.rawData);
             },
             'company-matched': (data) => {
               // Hint for the user about which company was matched
@@ -116,6 +121,7 @@ export default function App() {
     abortRef.current?.abort();
     setView('home');
     setReport(null);
+    setRawData(null);
     setSteps([]);
     setStreamingText('');
     setError(null);
@@ -137,6 +143,7 @@ export default function App() {
             query={query}
             steps={steps}
             report={report}
+            rawData={rawData}
             streamingText={streamingText}
             isStreaming={isStreaming}
             isComplete={isComplete}

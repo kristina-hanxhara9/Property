@@ -33,6 +33,8 @@ export async function fetchEpcByPostcode(
       addressFragment,
       auth: buildBearerAuth(bearerToken),
       baseUrl: baseUrl || NEW_BASE,
+      searchPath: arguments[1]?.searchPath,
+      postcodeParam: arguments[1]?.postcodeParam,
     });
   }
   if (email && apiKey) {
@@ -51,9 +53,9 @@ export async function fetchEpcByPostcode(
   };
 }
 
-async function fetchViaNewService({ postcode, addressFragment, auth, baseUrl }) {
-  const url = new URL(`${baseUrl}/api/certificate`);
-  url.searchParams.set('postcode', postcode);
+async function fetchViaNewService({ postcode, addressFragment, auth, baseUrl, searchPath, postcodeParam }) {
+  const url = new URL(`${baseUrl}${searchPath || '/api/certificate'}`);
+  url.searchParams.set(postcodeParam || 'postcode', postcode);
 
   const res = await fetch(url, { headers: { ...auth, Accept: 'application/json' } });
 

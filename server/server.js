@@ -11,6 +11,7 @@ import { fetchFloodRisk } from './apis/floodRisk.js';
 import { searchCompanies, fetchCompanyBundle } from './apis/companiesHouse.js';
 import { fetchEpcByPostcode, pickBestEpc } from './apis/epc.js';
 import { fetchPlanningApplications } from './apis/planit.js';
+import { buildPropertyDocx, buildCompanyDocx } from './apis/docxExport.js';
 import {
   fetchImdDecile,
   fetchOnsRentalGrowth,
@@ -44,6 +45,11 @@ const EPC_EMAIL = process.env.EPC_EMAIL || '';
 const EPC_API_KEY = process.env.EPC_API_KEY || '';
 const EPC_BEARER_TOKEN = process.env.EPC_BEARER_TOKEN || '';
 const EPC_BASE_URL = process.env.EPC_BASE_URL || '';
+// EPC_SEARCH_PATH and EPC_POSTCODE_PARAM let you override the search
+// endpoint without a code change — useful while the new MHCLG API is
+// still settling. Defaults are best-guess; check your OpenAPI spec.
+const EPC_SEARCH_PATH = process.env.EPC_SEARCH_PATH || '';
+const EPC_POSTCODE_PARAM = process.env.EPC_POSTCODE_PARAM || '';
 const EPC_CONFIGURED = Boolean(EPC_BEARER_TOKEN || (EPC_EMAIL && EPC_API_KEY));
 
 if (!ANTHROPIC_API_KEY) {
@@ -214,6 +220,8 @@ app.post('/api/property-check', async (req, res) => {
         email: EPC_EMAIL,
         apiKey: EPC_API_KEY,
         baseUrl: EPC_BASE_URL,
+        searchPath: EPC_SEARCH_PATH,
+        postcodeParam: EPC_POSTCODE_PARAM,
       },
     ),
   );
@@ -285,6 +293,10 @@ app.post('/api/property-check', async (req, res) => {
   };
 
   sseSend(res, 'partial-data', { partial: apiResults });
+  // Send the FULL raw data set so the frontend can hold it for DOCX export
+  // and an "All raw data" UI section. This includes everything every API
+  // returned, not just the curated fields the cards display.
+  sseSend(res, 'raw-data', { rawData: apiResults });
 
   const apisQueried = 8;
   const apisSuccessful = apisQueried - apisFailed.length;
@@ -445,6 +457,8 @@ app.post('/api/company-check', async (req, res) => {
     ...bundle,
     meta: { apisQueried, apisSuccessful, apisFailed },
   };
+
+  sseSend(res, 'raw-data', { rawData: companyRawData });
 
   const fallbackReport = buildCompanyFallbackReport({
     companyInput: companyName || resolvedNumber,
@@ -612,6 +626,35 @@ app.post('/api/comparables', async (req, res) => {
   }
 
   res.end();
+});
+
+app.post('/api/export-docx', async (req, res) => {
+  const { report, rawData } = req.body || {};
+  if (!report || !report.reportType) {
+    res.status(400).json({ error: 'report (with reportType) required.' });
+    return;
+  }
+  try {
+    const buf =
+      report.reportType === 'company'
+        ? await buildCompanyDocx(report, rawData || {})
+        : await buildPropertyDocx(report, rawData || {});
+
+    const safeName = String(report.queryInput || 'report')
+      .replace(/[^a-z0-9-]+/gi, '_')
+      .slice(0, 80);
+    const filename = `propertyiq_${report.reportType}_${safeName}.docx`;
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buf.length);
+    res.end(buf);
+  } catch (err) {
+    res.status(500).json({ error: err?.message || 'DOCX generation failed.' });
+  }
 });
 
 app.post('/api/chat', async (req, res) => {

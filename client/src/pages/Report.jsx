@@ -8,12 +8,15 @@ import RecommendedSteps from '../components/RecommendedSteps.jsx';
 import ActionButtons from '../components/ActionButtons.jsx';
 import ChatPanel from '../components/ChatPanel.jsx';
 import MarketComparables from '../components/MarketComparables.jsx';
+import RawDataSection from '../components/RawDataSection.jsx';
+import { apiUrl } from '../lib/api.js';
 
 export default function Report({
   mode,
   query,
   steps,
   report,
+  rawData,
   streamingText,
   isStreaming,
   isComplete,
@@ -22,7 +25,40 @@ export default function Report({
   onNewSearch,
 }) {
   const [pendingPrompt, setPendingPrompt] = useState(null);
+  const [downloading, setDownloading] = useState(false);
   const reportType = mode === 'company' ? 'company' : 'property';
+
+  async function handleDownloadDocx() {
+    if (!report || downloading) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(apiUrl('/api/export-docx'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report, rawData: rawData || {} }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `Server returned ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = (report.queryInput || 'report')
+        .replace(/[^a-z0-9-]+/gi, '_')
+        .slice(0, 80);
+      a.download = `propertyiq_${reportType}_${safeName}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(`Download failed: ${err.message}`);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -35,13 +71,23 @@ export default function Report({
             {query || (reportType === 'company' ? 'Company analysis' : 'Property analysis')}
           </h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button type="button" className="btn-ghost" onClick={onNewSearch}>
             New search
           </button>
           {isComplete && (
             <button type="button" className="btn-soft" onClick={onRetry}>
               Re-run
+            </button>
+          )}
+          {report && (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleDownloadDocx}
+              disabled={downloading}
+            >
+              {downloading ? 'Building Word doc…' : '📄 Download Word doc'}
             </button>
           )}
         </div>
@@ -92,6 +138,8 @@ export default function Report({
             pendingPrompt={pendingPrompt}
             onPromptConsumed={() => setPendingPrompt(null)}
           />
+
+          <RawDataSection rawData={rawData} />
         </>
       )}
 
