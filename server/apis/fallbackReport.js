@@ -335,6 +335,14 @@ export function buildPropertyFallbackReport({ address, postcode, rawData }) {
       rawData?.environmentalLinks?.planningHistorySupplementary || null,
     planningApplications: rawData?.planit?.applications || [],
     planningApplicationsTotal: rawData?.planit?.total || 0,
+    addressPlanningHistory: rawData?.planitAddress
+      ? {
+          applications: rawData.planitAddress.applications || [],
+          total: rawData.planitAddress.total || 0,
+          summary: rawData.planitAddress.summary || null,
+          fragment: rawData.planitAddress.fragment || null,
+        }
+      : null,
     onsAreaProfile: rawData?.environmentalLinks?.onsAreaProfile || null,
 
     // New free-data sections
@@ -905,6 +913,15 @@ export function buildCompanyFallbackReport({ companyInput, rawData }) {
       })),
     },
 
+    filingHealth: buildFilingHealthScore({
+      profile,
+      accounts,
+      cs,
+      outstanding,
+      insolvencyCases,
+      filingHistory: rawData?.filingHistory,
+    }),
+
     ownership: {
       personsOfSignificantControl: psc,
       ownershipStructureRisk,
@@ -948,6 +965,7 @@ export function buildCompanyFallbackReport({ companyInput, rawData }) {
     propertyHoldings: rawData?.propertyHoldings || null,
     propertyHoldingsError: rawData?.propertyHoldingsError || null,
     propertyHoldingsLinks: buildPropertyHoldingsLinks(profile.company_number, profile.company_name),
+    voaLinks: rawData?.voaLinks || null,
 
     flags: addSanctionsFlags(flags, rawData?.sanctions),
 
@@ -964,6 +982,172 @@ export function buildCompanyFallbackReport({ companyInput, rawData }) {
       dataCompleteness: psc.length > 0 && officers.length > 0 ? 'Medium' : 'Low',
     },
   };
+}
+
+// Traffic-light filing-health score from Companies House data we already
+// have. Returns a 0-100 score with human-readable diagnostics. NOT a credit
+// score — purely a "are they keeping up with statutory obligations?" check.
+function buildFilingHealthScore({ profile, accounts, cs, outstanding, insolvencyCases, filingHistory }) {
+  let score = 100;
+  const checks = [];
+  let band = 'green';
+
+  // 1. Status (active/dissolved/liquidation/etc)
+  const status = profile?.company_status || 'unknown';
+  if (status === 'active') {
+    checks.push({ status: 'pass', label: 'Company status', detail: 'active' });
+  } else if (status === 'dissolved') {
+    score -= 80;
+    band = 'red';
+    checks.push({ status: 'fail', label: 'Company status', detail: 'dissolved' });
+  } else if (['liquidation', 'administration', 'receivership'].includes(status)) {
+    score -= 70;
+    band = 'red';
+    checks.push({ status: 'fail', label: 'Company status', detail: status });
+  } else {
+    score -= 20;
+    checks.push({ status: 'warn', label: 'Company status', detail: status });
+  }
+
+  // 2. Accounts on time?
+  const accOverdue = accounts?.overdue === true;
+  if (accOverdue) {
+    score -= 25;
+    band = 'red';
+    checks.push({ status: 'fail', label: 'Statutory accounts', detail: 'overdue' });
+  } else if (accounts?.next_due) {
+    const daysToNext = daysFromNow(accounts.next_due);
+    if (daysToNext != null && daysToNext < 30) {
+      score -= 5;
+      checks.push({
+        status: 'warn',
+        label: 'Statutory accounts',
+        detail: `due in ${daysToNext} days`,
+      });
+    } else {
+      checks.push({
+        status: 'pass',
+        label: 'Statutory accounts',
+        detail: `last filed ${accounts?.last_accounts?.made_up_to || 'date unknown'}`,
+      });
+    }
+  } else {
+    checks.push({
+      status: 'warn',
+      label: 'Statutory accounts',
+      detail: 'no filing history found',
+    });
+    score -= 10;
+  }
+
+  // 3. Confirmation statement on time?
+  const csOverdue = cs?.overdue === true;
+  if (csOverdue) {
+    score -= 15;
+    if (band !== 'red') band = 'amber';
+    checks.push({ status: 'fail', label: 'Confirmation statement', detail: 'overdue' });
+  } else if (cs?.next_due) {
+    const daysToNext = daysFromNow(cs.next_due);
+    if (daysToNext != null && daysToNext < 14) {
+      score -= 3;
+      checks.push({
+        status: 'warn',
+        label: 'Confirmation statement',
+        detail: `due in ${daysToNext} days`,
+      });
+    } else {
+      checks.push({ status: 'pass', label: 'Confirmation statement', detail: 'on time' });
+    }
+  } else {
+    checks.push({ status: 'warn', label: 'Confirmation statement', detail: 'no due date set' });
+  }
+
+  // 4. Outstanding charges (lender security)
+  if (outstanding === 0) {
+    checks.push({ status: 'pass', label: 'Outstanding charges', detail: 'none registered' });
+  } else if (outstanding >= 5) {
+    score -= 15;
+    if (band !== 'red') band = 'amber';
+    checks.push({
+      status: 'warn',
+      label: 'Outstanding charges',
+      detail: `${outstanding} registered (high leverage)`,
+    });
+  } else {
+    score -= 5;
+    checks.push({
+      status: 'warn',
+      label: 'Outstanding charges',
+      detail: `${outstanding} registered`,
+    });
+  }
+
+  // 5. Insolvency history
+  if (insolvencyCases?.length) {
+    score -= 30;
+    band = 'red';
+    checks.push({
+      status: 'fail',
+      label: 'Insolvency history',
+      detail: `${insolvencyCases.length} case(s) on file`,
+    });
+  } else {
+    checks.push({ status: 'pass', label: 'Insolvency history', detail: 'no cases on file' });
+  }
+
+  // 6. Recent filing activity (filing history items in last 18 months)
+  const fhItems = filingHistory?.items || [];
+  const eighteenMonthsAgo = new Date();
+  eighteenMonthsAgo.setMonth(eighteenMonthsAgo.getMonth() - 18);
+  const recentFilings = fhItems.filter(
+    (f) => f.date && new Date(f.date) > eighteenMonthsAgo,
+  ).length;
+  if (recentFilings >= 3) {
+    checks.push({
+      status: 'pass',
+      label: 'Recent filing activity',
+      detail: `${recentFilings} filings in last 18 months`,
+    });
+  } else if (recentFilings === 0) {
+    score -= 10;
+    if (band !== 'red') band = 'amber';
+    checks.push({
+      status: 'warn',
+      label: 'Recent filing activity',
+      detail: 'no filings in last 18 months',
+    });
+  } else {
+    checks.push({
+      status: 'warn',
+      label: 'Recent filing activity',
+      detail: `only ${recentFilings} filing${recentFilings === 1 ? '' : 's'} in last 18 months`,
+    });
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  if (band === 'green' && score < 80) band = 'amber';
+  if (score < 50) band = 'red';
+
+  let label;
+  if (band === 'green') label = 'Healthy — meeting all statutory obligations';
+  else if (band === 'amber') label = 'Some lapses — monitor and request explanation';
+  else label = 'Material concerns — escalate before any JV';
+
+  return {
+    score,
+    band, // green/amber/red
+    label,
+    checks,
+    note:
+      'Statutory-filing health only. Does not include trading performance, payment behaviour, or related-party data — request full accounts to assess those.',
+  };
+}
+
+function daysFromNow(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.round((d - new Date()) / (1000 * 60 * 60 * 24));
 }
 
 function addSanctionsFlags(existingFlags, sanctions) {

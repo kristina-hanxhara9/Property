@@ -13,8 +13,9 @@ import { checkSanctions } from './apis/sanctions.js';
 import { searchCorporatePropertyHoldings } from './apis/ccod.js';
 import { verifyVatNumber } from './apis/vat.js';
 import { fetchEpcByPostcode, pickBestEpc } from './apis/epc.js';
-import { fetchPlanningApplications } from './apis/planit.js';
+import { fetchPlanningApplications, fetchPlanningApplicationsForAddress } from './apis/planit.js';
 import { buildPropertyDocx, buildCompanyDocx } from './apis/docxExport.js';
+import { buildVoaLinksForCompany } from './apis/voa.js';
 import {
   fetchImdDecile,
   fetchPostcodeDemographics,
@@ -61,6 +62,8 @@ import {
   buildCommercialRentsUserMessage,
   HMO_RENTS_SYSTEM_PROMPT,
   buildHmoRentsUserMessage,
+  INVESTMENT_MEMO_SYSTEM_PROMPT,
+  buildInvestmentMemoUserMessage,
 } from './prompts/aiAgents.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -288,6 +291,21 @@ app.post('/api/property-check', async (req, res) => {
     'PlanIt UK — recent planning applications (free)',
     () => fetchPlanningApplications({ postcode: postcodeStr, latitude, longitude, limit: 12 }),
   );
+  // Address-level history: only meaningful if the user gave us a real
+  // address string (not a bare postcode click from the map).
+  const planitAddressPromise = address && address !== postcodeStr
+    ? runStep(
+        res,
+        'planit-address',
+        'PlanIt UK — full history at this address (free)',
+        () =>
+          fetchPlanningApplicationsForAddress({
+            postcode: postcodeStr,
+            addressFragment: address,
+            limit: 25,
+          }),
+      )
+    : Promise.resolve({ ok: true, value: null });
   const adminDistrictCode = geo.value?.codes?.admin_district || null;
   const nomisPromise = (async () => {
     const result = await runStep(
@@ -347,6 +365,7 @@ app.post('/api/property-check', async (req, res) => {
     imd,
     onsRental,
     planit,
+    planitAddress,
     nomis,
     ground,
     crime,
@@ -361,6 +380,7 @@ app.post('/api/property-check', async (req, res) => {
     imdPromise,
     onsRentalPromise,
     planitPromise,
+    planitAddressPromise,
     nomisPromise,
     groundPromise,
     crimePromise,
@@ -394,6 +414,7 @@ app.post('/api/property-check', async (req, res) => {
   apiResults.imd = imd.value || null;
   apiResults.onsRental = onsRental.value || null;
   apiResults.planit = planit.value || null;
+  apiResults.planitAddress = planitAddress?.value || null;
   apiResults.nomis = nomis.value || null;
   apiResults.ground = ground.value || null;
   apiResults.crime = crime.value || null;
@@ -806,6 +827,7 @@ app.post('/api/company-check', async (req, res) => {
     sanctions: sanctionsResult,
     propertyHoldings: ccodStep.value || null,
     propertyHoldingsError: ccodStep.ok ? null : ccodStep.error,
+    voaLinks: buildVoaLinksForCompany(bundle.profile),
     meta: { apisQueried, apisSuccessful, apisFailed: [...apisFailed, ...apisFailedExtra] },
   };
 
@@ -980,7 +1002,7 @@ app.post('/api/comparables', async (req, res) => {
 });
 
 app.post('/api/export-docx', async (req, res) => {
-  const { report, rawData } = req.body || {};
+  const { report, rawData, investmentMemo } = req.body || {};
   if (!report || !report.reportType) {
     res.status(400).json({ error: 'report (with reportType) required.' });
     return;
@@ -989,7 +1011,7 @@ app.post('/api/export-docx', async (req, res) => {
     const buf =
       report.reportType === 'company'
         ? await buildCompanyDocx(report, rawData || {})
-        : await buildPropertyDocx(report, rawData || {});
+        : await buildPropertyDocx(report, rawData || {}, { investmentMemo });
 
     const safeName = String(report.queryInput || 'report')
       .replace(/[^a-z0-9-]+/gi, '_')
@@ -1006,6 +1028,56 @@ app.post('/api/export-docx', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err?.message || 'DOCX generation failed.' });
   }
+});
+
+// Investment memo — Claude streams a structured Markdown memo derived from
+// the report JSON. Pure synthesis — no web search. Chunked Markdown is
+// emitted via SSE 'delta' events; the final memo arrives in 'memo'.
+app.post('/api/investment-memo', async (req, res) => {
+  const { report } = req.body || {};
+  if (!report || report.reportType !== 'property') {
+    res.status(400).json({ error: 'A property report is required.' });
+    return;
+  }
+  if (!ANTHROPIC_API_KEY) {
+    res.status(503).json({
+      error: 'Investment memo requires ANTHROPIC_API_KEY on the server.',
+    });
+    return;
+  }
+
+  sseHeaders(res);
+  sseSend(res, 'step', {
+    name: 'memo',
+    label: 'Drafting investment memorandum (Claude)',
+    status: 'running',
+  });
+
+  let collected = '';
+  try {
+    const stream = anthropic.messages.stream({
+      model: MODEL,
+      max_tokens: 4000,
+      system: INVESTMENT_MEMO_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: buildInvestmentMemoUserMessage(report) }],
+    });
+    stream.on('text', (delta) => {
+      collected += delta;
+      sseSend(res, 'delta', { text: delta });
+    });
+    await stream.finalMessage();
+    sseSend(res, 'step', { name: 'memo', label: 'Memo complete', status: 'complete' });
+    sseSend(res, 'memo', { markdown: collected });
+  } catch (err) {
+    sseSend(res, 'step', {
+      name: 'memo',
+      label: 'Memo failed',
+      status: 'failed',
+      error: err?.message,
+    });
+    sseSend(res, 'error', { message: err?.message || 'Memo generation failed.' });
+  }
+  res.end();
 });
 
 // Generic helper for the on-demand Claude web-search agents (AVM,

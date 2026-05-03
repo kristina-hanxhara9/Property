@@ -36,12 +36,113 @@ export function CompanyCards({ report }) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <CompanyProfileCard report={report} />
+      <FilingHealthCard report={report} />
       <OwnershipStructureCard report={report} />
       <DirectorsCard report={report} />
       <FinancialHealthCard report={report} />
       <SanctionsCard report={report} />
       <PropertyHoldingsCard report={report} />
+      <VoaBusinessRatesCard report={report} />
     </div>
+  );
+}
+
+function VoaBusinessRatesCard({ report }) {
+  const v = report.voaLinks;
+  if (!v || !v.links?.length) return null;
+  return (
+    <CardShell
+      title="VOA business rates — commercial property at this address"
+      source="Source: Valuation Office Agency · GOV.UK"
+    >
+      <p className="text-xs text-slate-600">{v.note}</p>
+      <ul className="space-y-1.5">
+        {v.links.map((l, i) => (
+          <li key={i}>
+            <a
+              href={l.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
+            >
+              <span className="font-semibold text-claude-700">
+                🏢 {l.label} — {l.postcode} ↗
+              </span>
+              <span className="block text-slate-600">{l.address}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+      {v.bulkDownload && (
+        <details className="border-t border-cream-200 pt-2 text-[11px] text-slate-600">
+          <summary className="cursor-pointer font-semibold text-claude-700">
+            Want every commercial property the company occupies anywhere in England & Wales?
+          </summary>
+          <a
+            href={v.bulkDownload.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 block rounded-lg bg-cream-50 p-2 hover:bg-cream-100"
+          >
+            <span className="font-semibold text-claude-700">📦 {v.bulkDownload.name} ↗</span>
+            <span className="block text-slate-500">{v.bulkDownload.note}</span>
+          </a>
+        </details>
+      )}
+    </CardShell>
+  );
+}
+
+function FilingHealthCard({ report }) {
+  const f = report.filingHealth;
+  if (!f) return null;
+  const bandStyle =
+    f.band === 'red'
+      ? { bg: 'bg-crit-bg', text: 'text-crit-text', dot: 'bg-crit-text' }
+      : f.band === 'amber'
+      ? { bg: 'bg-warn-bg', text: 'text-warn-text', dot: 'bg-warn-text' }
+      : { bg: 'bg-ok-bg', text: 'text-ok-text', dot: 'bg-ok-text' };
+  return (
+    <CardShell
+      title="Filing health score"
+      source="Source: Companies House (statutory filings only — not a credit score)"
+    >
+      <div className={`rounded-xl ${bandStyle.bg} p-3`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className={`inline-block h-3 w-3 rounded-full ${bandStyle.dot}`} />
+            <p className={`font-display text-base font-bold ${bandStyle.text}`}>
+              {f.score}/100 · {f.band.toUpperCase()}
+            </p>
+          </div>
+        </div>
+        <p className={`mt-1 text-sm ${bandStyle.text}`}>{f.label}</p>
+      </div>
+      <ul className="mt-2 space-y-1.5 text-xs">
+        {f.checks.map((c, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <span
+              className={
+                c.status === 'pass'
+                  ? 'mt-0.5 inline-block h-3 w-3 rounded-full bg-ok-text'
+                  : c.status === 'warn'
+                  ? 'mt-0.5 inline-block h-3 w-3 rounded-full bg-warn-text'
+                  : 'mt-0.5 inline-block h-3 w-3 rounded-full bg-crit-text'
+              }
+            />
+            <span>
+              <span className="font-semibold text-ink">{c.label}:</span>{' '}
+              <span className="text-slate-600">{c.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {f.note && (
+        <p className="mt-2 border-t border-cream-200 pt-2 text-[11px] italic leading-relaxed text-slate-500">
+          {f.note}
+        </p>
+      )}
+    </CardShell>
   );
 }
 
@@ -243,6 +344,14 @@ function Field({ label, value, mono }) {
 
 function OwnershipCard({ report }) {
   const t = report.titleData || {};
+  const titleLocked = !t.titleNumber && (!t.dataSource || /not enabled|unavailable|paid/i.test(t.dataSource || ''));
+  if (titleLocked) {
+    return (
+      <CardShell title="Ownership" source="Source: HM Land Registry Title Register (paid)">
+        <TitleUnlockBlock />
+      </CardShell>
+    );
+  }
   return (
     <CardShell title="Ownership" source="Source: Land Registry Title Register">
       <Field label="Owner" value={t.owner} />
@@ -260,39 +369,78 @@ function OwnershipCard({ report }) {
   );
 }
 
+// Shared "unlock for £7" block used by Ownership + Legal cards. Renders an
+// obvious CTA — clearer than the previous "data unavailable" footnote. The
+// click goes to the HM Land Registry Find a Property page; once HMLR Business
+// Gateway billing is wired server-side, swap the button to call /api/title-
+// register and inject the result back into the report inline.
+function TitleUnlockBlock() {
+  return (
+    <div className="rounded-xl border-2 border-dashed border-claude-300 bg-claude-50 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-display text-sm font-bold text-claude-700">
+          🔒 Locked — official title data
+        </p>
+        <span className="pill-info">£7 per title</span>
+      </div>
+      <p className="mt-2 text-sm text-slate-700">
+        Owner name, mortgages / charges, restrictive covenants and easements live on the
+        official HM Land Registry Title Register — a paid lookup (£7 per title) we can&rsquo;t
+        infer from open data. We don&rsquo;t want to guess and report &ldquo;none&rdquo; when the
+        truth is &ldquo;we haven&rsquo;t checked.&rdquo;
+      </p>
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <a
+          href="https://eservices.landregistry.gov.uk/eservices/FindAProperty/view/QuickEnquiryInit.do"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-xl bg-claude px-4 py-2 text-center font-display text-sm font-bold text-white shadow-sm hover:bg-claude-700"
+        >
+          Order Title Register · £7 ↗
+        </a>
+        <a
+          href="https://www.gov.uk/government/organisations/land-registry/about/business-gateway"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-xl bg-white px-4 py-2 text-center font-display text-sm font-bold text-claude-700 ring-1 ring-claude-300 hover:bg-cream-50"
+        >
+          What you get for £7 ↗
+        </a>
+      </div>
+      <p className="mt-2 text-[11px] italic text-slate-500">
+        Roadmap: HMLR Business Gateway integration will let you unlock and inject the title
+        directly into this report in one click. Currently a manual link-out.
+      </p>
+    </div>
+  );
+}
+
 function LegalCard({ report }) {
   const t = report.titleData || {};
-  const titleNotEnabled = !t.titleNumber && (!t.dataSource || /not enabled/i.test(t.dataSource));
+  const titleNotEnabled = !t.titleNumber && (!t.dataSource || /not enabled|unavailable|paid/i.test(t.dataSource));
+
+  if (titleNotEnabled) {
+    // Don't double-render the big unlock block — Ownership card shows it.
+    // Keep this card slim with just a pointer back.
+    return (
+      <CardShell title="Legal & encumbrances" source="Source: HM Land Registry Title Register (paid)">
+        <p className="text-sm text-slate-600">
+          Mortgages, restrictive covenants and easements unlock together with the Ownership
+          card above. See the &ldquo;Unlock&rdquo; button there.
+        </p>
+      </CardShell>
+    );
+  }
 
   return (
     <CardShell title="Legal & encumbrances" source="Source: Land Registry Title Register">
-      {titleNotEnabled && (
-        <div className="rounded-xl border border-cream-200 bg-cream-50 p-3 text-xs text-ink/70">
-          <strong className="text-claude-700">Data unavailable.</strong> Mortgages, restrictive
-          covenants and easements live on the official Land Registry Title Register, which is a
-          paid lookup (£7 per title) not enabled in this MVP. We can't say "none" — we just don't
-          know yet.
-          <a
-            href="https://eservices.landregistry.gov.uk/eservices/FindAProperty/view/QuickEnquiryInit.do"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 block font-semibold text-claude-700 hover:underline"
-          >
-            Order a Title Register from HM Land Registry ↗
-          </a>
-        </div>
-      )}
-      {!titleNotEnabled && (
-        <>
-          <BulletList label="Mortgages / charges" items={t.mortgages} empty="None recorded" />
-          <BulletList
-            label="Restrictive covenants"
-            items={t.restrictiveCovenants}
-            empty="None recorded"
-          />
-          <BulletList label="Easements" items={t.easements} empty="None recorded" />
-        </>
-      )}
+      <BulletList label="Mortgages / charges" items={t.mortgages} empty="None recorded" />
+      <BulletList
+        label="Restrictive covenants"
+        items={t.restrictiveCovenants}
+        empty="None recorded"
+      />
+      <BulletList label="Easements" items={t.easements} empty="None recorded" />
     </CardShell>
   );
 }
@@ -408,6 +556,81 @@ function PlanningCard({ report }) {
       </div>
       {p.planningNotes && (
         <p className="border-t border-slate-100 pt-3 text-sm text-slate-600">{p.planningNotes}</p>
+      )}
+      {report.addressPlanningHistory && report.addressPlanningHistory.applications.length > 0 && (
+        <div className="space-y-1.5 border-t border-cream-200 pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
+            🎯 Planning history at this address
+            {report.addressPlanningHistory.fragment && (
+              <span className="font-normal text-slate-500"> · matched on “{report.addressPlanningHistory.fragment}”</span>
+            )}
+          </p>
+          {report.addressPlanningHistory.summary && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              {report.addressPlanningHistory.summary.approved > 0 && (
+                <span className="pill-ok">✓ {report.addressPlanningHistory.summary.approved} approved</span>
+              )}
+              {report.addressPlanningHistory.summary.refused > 0 && (
+                <span className="pill-crit">✗ {report.addressPlanningHistory.summary.refused} refused</span>
+              )}
+              {report.addressPlanningHistory.summary.withdrawn > 0 && (
+                <span className="pill-warn">↩ {report.addressPlanningHistory.summary.withdrawn} withdrawn</span>
+              )}
+              {report.addressPlanningHistory.summary.pending > 0 && (
+                <span className="pill-warn">⏳ {report.addressPlanningHistory.summary.pending} pending</span>
+              )}
+              {report.addressPlanningHistory.summary.refusalRate != null && (
+                <span className="text-slate-600">
+                  · refusal rate {report.addressPlanningHistory.summary.refusalRate}%
+                </span>
+              )}
+            </div>
+          )}
+          <ul className="space-y-1.5">
+            {report.addressPlanningHistory.applications.slice(0, 12).map((a, i) => (
+              <li key={i} className="rounded-lg bg-claude-50 p-2 text-xs">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-semibold text-ink">{a.reference || 'No ref'}</span>
+                  <span className="text-slate-500">
+                    {a.receivedDate ? new Date(a.receivedDate).toLocaleDateString('en-GB') : '—'}
+                  </span>
+                </div>
+                {a.address && <p className="text-slate-700">{a.address}</p>}
+                {a.description && <p className="mt-0.5 text-slate-600">{a.description}</p>}
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  {(a.decision || a.status) && (
+                    <span
+                      className={
+                        /approv|granted|permit/i.test(a.decision || a.status)
+                          ? 'pill-ok'
+                          : /refus|reject|withdraw/i.test(a.decision || a.status)
+                          ? 'pill-crit'
+                          : 'pill-warn'
+                      }
+                    >
+                      {a.decision || a.status}
+                    </span>
+                  )}
+                  {a.decisionDate && (
+                    <span className="text-slate-500">
+                      decided {new Date(a.decisionDate).toLocaleDateString('en-GB')}
+                    </span>
+                  )}
+                  {a.url && (
+                    <a
+                      href={a.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-auto font-semibold text-claude-700 hover:underline"
+                    >
+                      View ↗
+                    </a>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {report.planningApplications && report.planningApplications.length > 0 && (
         <div className="space-y-1.5 border-t border-cream-200 pt-3">

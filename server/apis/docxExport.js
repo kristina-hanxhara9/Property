@@ -35,7 +35,8 @@ const SEVERITY_COLORS = {
   critical: COLOR_CRIT,
 };
 
-export async function buildPropertyDocx(report, rawData) {
+export async function buildPropertyDocx(report, rawData, { investmentMemo } = {}) {
+  const memoBlocks = investmentMemo ? memoSection(investmentMemo) : [];
   const sections = [
     {
       properties: { page: { margin: { top: 720, bottom: 720, left: 720, right: 720 } } },
@@ -64,6 +65,9 @@ export async function buildPropertyDocx(report, rawData) {
         ...flagsSection(report),
         sectionHeader('Recommended next steps'),
         ...nextStepsSection(report),
+        ...(memoBlocks.length
+          ? [new Paragraph({ children: [new PageBreak()] }), ...memoBlocks]
+          : []),
         new Paragraph({ children: [new PageBreak()] }),
         sectionHeader('Raw data — all API fields'),
         ...rawDataSection(rawData || {}),
@@ -818,4 +822,98 @@ function formatBool(b) {
 function formatBoolWithDetail(b, detail) {
   if (!b) return 'No';
   return detail ? `Yes — ${detail}` : 'Yes';
+}
+
+// Render the Claude-drafted Markdown memo as a clean second-page section
+// inside the same .docx. Only handles the Markdown subset the memo prompt
+// emits (#, ##, bullet `- `, numbered `1.`, plain paragraphs).
+function memoSection(memoMarkdown) {
+  const lines = String(memoMarkdown).split(/\r?\n/);
+  const out = [];
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) {
+      out.push(new Paragraph({ children: [new TextRun({ text: '' })] }));
+      continue;
+    }
+    const h1 = line.match(/^#\s+(.*)$/);
+    if (h1) {
+      out.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_1,
+          spacing: { before: 240, after: 120 },
+          children: [new TextRun({ text: h1[1], bold: true, size: 32, color: COLOR_CLAUDE_700 })],
+        }),
+      );
+      continue;
+    }
+    const h2 = line.match(/^##\s+(.*)$/);
+    if (h2) {
+      out.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 200, after: 80 },
+          children: [new TextRun({ text: h2[1], bold: true, size: 26, color: COLOR_INK })],
+        }),
+      );
+      continue;
+    }
+    const bullet = line.match(/^[-*]\s+(.*)$/);
+    if (bullet) {
+      out.push(
+        new Paragraph({
+          bullet: { level: 0 },
+          children: parseInline(bullet[1]),
+        }),
+      );
+      continue;
+    }
+    const num = line.match(/^(\d+\.)\s+(.*)$/);
+    if (num) {
+      out.push(
+        new Paragraph({
+          spacing: { after: 80 },
+          indent: { left: 360, hanging: 360 },
+          children: [
+            new TextRun({ text: `${num[1]} `, bold: true }),
+            ...parseInline(num[2]),
+          ],
+        }),
+      );
+      continue;
+    }
+    out.push(new Paragraph({ spacing: { after: 120 }, children: parseInline(line) }));
+  }
+  return out;
+}
+
+// Minimal inline Markdown parser — bold (**x**) and italic (*x*).
+function parseInline(text) {
+  const runs = [];
+  let i = 0;
+  while (i < text.length) {
+    if (text.startsWith('**', i)) {
+      const end = text.indexOf('**', i + 2);
+      if (end > -1) {
+        runs.push(new TextRun({ text: text.slice(i + 2, end), bold: true }));
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text[i] === '*' && text[i + 1] !== '*') {
+      const end = text.indexOf('*', i + 1);
+      if (end > -1) {
+        runs.push(new TextRun({ text: text.slice(i + 1, end), italics: true }));
+        i = end + 1;
+        continue;
+      }
+    }
+    // Find the next bold/italic marker so we batch plain text in one run.
+    let nextSpecial = text.length;
+    const candidates = [text.indexOf('**', i), text.indexOf('*', i)].filter((x) => x > -1);
+    if (candidates.length) nextSpecial = Math.min(...candidates);
+    runs.push(new TextRun({ text: text.slice(i, nextSpecial) }));
+    i = nextSpecial;
+  }
+  return runs.length ? runs : [new TextRun({ text })];
 }

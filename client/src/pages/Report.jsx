@@ -19,6 +19,7 @@ import {
   HmoRentsAgentCard,
 } from '../components/AiAgentCards.jsx';
 import VatVerifyCard from '../components/VatVerifyCard.jsx';
+import InvestmentMemoCard from '../components/InvestmentMemoCard.jsx';
 import { apiUrl } from '../lib/api.js';
 
 export default function Report({
@@ -36,6 +37,7 @@ export default function Report({
 }) {
   const [pendingPrompt, setPendingPrompt] = useState(null);
   const [downloading, setDownloading] = useState(false);
+  const [investmentMemo, setInvestmentMemo] = useState(null);
   const reportType = mode === 'company' ? 'company' : 'property';
 
   async function handleDownloadDocx() {
@@ -45,7 +47,7 @@ export default function Report({
       const res = await fetch(apiUrl('/api/export-docx'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ report, rawData: rawData || {} }),
+        body: JSON.stringify({ report, rawData: rawData || {}, investmentMemo }),
       });
       if (!res.ok) {
         const txt = await res.text();
@@ -127,6 +129,7 @@ export default function Report({
 
           {reportType === 'property' && (
             <>
+              <InvestmentMemoCard report={report} onMemoReady={setInvestmentMemo} />
               <MarketComparables report={report} />
               <AvmAgentCard report={report} />
               <HmoRentsAgentCard report={report} />
