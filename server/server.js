@@ -15,7 +15,7 @@ import { verifyVatNumber } from './apis/vat.js';
 import { fetchEpcByPostcode, pickBestEpc } from './apis/epc.js';
 import { fetchPlanningApplications, fetchPlanningApplicationsForAddress } from './apis/planit.js';
 import { buildPropertyDocx, buildCompanyDocx } from './apis/docxExport.js';
-import { buildVoaLinksForCompany } from './apis/voa.js';
+import { buildVoaLinksForCompany, fetchVoaForCompany } from './apis/voa.js';
 import {
   fetchImdDecile,
   fetchPostcodeDemographics,
@@ -785,8 +785,15 @@ app.post('/api/company-check', async (req, res) => {
   const ccodStep = await runStep(
     res,
     'ccod',
-    'Land Registry CCOD/OCOD — UK property holdings lookup (free)',
+    'Land Registry CCOD/OCOD — UK property holdings lookup (free, key required)',
     () => searchCorporatePropertyHoldings(bundle.profile?.company_number),
+  );
+
+  const voaStep = await runStep(
+    res,
+    'voa',
+    'VOA — live business rates lookup at registered office (free)',
+    () => fetchVoaForCompany(bundle.profile),
   );
 
   const sanctionsStep = await runStep(
@@ -827,6 +834,8 @@ app.post('/api/company-check', async (req, res) => {
     sanctions: sanctionsResult,
     propertyHoldings: ccodStep.value || null,
     propertyHoldingsError: ccodStep.ok ? null : ccodStep.error,
+    voaLive: voaStep.value || null,
+    voaLiveError: voaStep.ok ? null : voaStep.error,
     voaLinks: buildVoaLinksForCompany(bundle.profile),
     meta: { apisQueried, apisSuccessful, apisFailed: [...apisFailed, ...apisFailedExtra] },
   };

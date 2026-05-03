@@ -1,17 +1,16 @@
 // HM Land Registry CCOD (UK Companies that Own Property in England & Wales)
-// and OCOD (Overseas Companies). Free monthly CSV downloads from
-// use-land-property-data.service.gov.uk.
+// and OCOD (Overseas Companies). Free monthly CSV downloads via the official
+// HMLR Open Data API.
 //
-// Lazy-loaded on first request and cached for 24 hours. CSVs are large
-// (~70-90MB CCOD, ~10-15MB OCOD) so we stream-parse and index by
-// company_registration_number, NOT load the whole thing into memory as
-// objects.
+// As of 2024 the dataset endpoint moved behind an API key. Sign-up is free
+// at https://use-land-property-data.service.gov.uk/. Set the resulting key
+// as LAND_REGISTRY_OPEN_DATA_KEY (or LR_OPEN_DATA_KEY) on the backend.
 //
-// If the URL pattern changes or the file is gated behind session/CSRF,
-// we surface a clear error and the UI falls back to the link.
+// The API call returns a JSON body with a short-lived presigned S3 URL for
+// the actual CSV. We fetch that URL, stream-parse, and index by company
+// number. Result is cached for 24 hours.
 
-const CCOD_BASE = 'https://use-land-property-data.service.gov.uk/datasets/ccod/download';
-const OCOD_BASE = 'https://use-land-property-data.service.gov.uk/datasets/ocod/download';
+const API_BASE = 'https://use-land-property-data.service.gov.uk/api/v1/datasets';
 
 // In-memory caches keyed by month (YYYY_MM). Each value is a Map of
 // company_number → array of records.
@@ -22,11 +21,11 @@ const cache = {
 
 const TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
-export async function searchCorporatePropertyHoldings(companyNumber) {
+export async function searchCorporatePropertyHoldings(companyNumber, { apiKey } = {}) {
   if (!companyNumber) return null;
-  // Normalise — Companies House numbers are 8 chars with leading zeros
+  const key = apiKey || process.env.LAND_REGISTRY_OPEN_DATA_KEY || process.env.LR_OPEN_DATA_KEY || '';
+
   const normalised = String(companyNumber).replace(/[^A-Z0-9]/gi, '').toUpperCase();
-  // Also try the unpadded variant (CCOD sometimes drops leading zeros)
   const candidates = new Set([
     normalised,
     normalised.replace(/^0+/, ''),
@@ -34,27 +33,19 @@ export async function searchCorporatePropertyHoldings(companyNumber) {
   ]);
 
   const [ccod, ocod] = await Promise.allSettled([
-    lookupInDataset('ccod'),
-    lookupInDataset('ocod'),
+    lookupInDataset('ccod', key),
+    lookupInDataset('ocod', key),
   ]);
 
   const summarise = (status, name) => {
     if (status.status === 'rejected') {
-      return {
-        available: false,
-        error: status.reason?.message || 'unknown',
-        name,
-      };
+      return { available: false, error: status.reason?.message || 'unknown', name };
     }
     const idx = status.value;
-    if (!idx) {
-      return { available: false, error: 'No index built', name };
-    }
+    if (!idx) return { available: false, error: 'No index built', name };
     let allMatches = [];
     for (const c of candidates) {
-      if (idx.byNumber.has(c)) {
-        allMatches = allMatches.concat(idx.byNumber.get(c));
-      }
+      if (idx.byNumber.has(c)) allMatches = allMatches.concat(idx.byNumber.get(c));
     }
     return {
       available: true,
@@ -69,45 +60,76 @@ export async function searchCorporatePropertyHoldings(companyNumber) {
   return {
     ccod: summarise(ccod, 'UK Companies (CCOD)'),
     ocod: summarise(ocod, 'Overseas Companies (OCOD)'),
+    keyConfigured: Boolean(key),
   };
 }
 
-async function lookupInDataset(kind) {
-  const c = cache[kind];
-  if (c.index && Date.now() - c.fetchedAt < TTL_MS) {
-    return c.index;
+async function lookupInDataset(kind, apiKey) {
+  if (!apiKey) {
+    throw new Error(
+      'LAND_REGISTRY_OPEN_DATA_KEY not configured. Free signup: https://use-land-property-data.service.gov.uk/. Set the key on the backend env to unlock automated CCOD/OCOD lookups.',
+    );
   }
 
-  // Build URL for the most recent month. The Land Registry publishes
-  // mid-month. Try current month, then previous month if 404.
+  const c = cache[kind];
+  if (c.index && Date.now() - c.fetchedAt < TTL_MS) return c.index;
+
+  // Try current month, then previous months — the file lands mid-month.
   const tries = lastNMonths(3);
   let lastError = null;
   for (const month of tries) {
-    const url = buildDownloadUrl(kind, month);
+    const fileName = `${kind.toUpperCase()}_FULL_${month}.csv`;
+    const apiUrl = `${API_BASE}/${kind}/${fileName}`;
     try {
-      const res = await fetch(url, {
+      // Step 1 — call the JSON API. Returns { result: 'redirect', url }.
+      const apiRes = await fetch(apiUrl, {
         headers: {
-          Accept: 'text/csv,application/octet-stream',
-          'User-Agent': 'PropertyIQ/0.1',
+          Authorization: apiKey, // HMLR uses raw key, no "Bearer" prefix
+          Accept: 'application/json',
         },
       });
-      if (res.status === 404) {
-        lastError = new Error(`${month}: 404`);
+      if (apiRes.status === 401 || apiRes.status === 403) {
+        let body = '';
+        try {
+          body = await apiRes.text();
+        } catch {
+          /* ignore */
+        }
+        throw new Error(
+          `${kind.toUpperCase()} ${month}: ${apiRes.status} unauthorized. Verify your LAND_REGISTRY_OPEN_DATA_KEY is correct and active. ${body.slice(0, 200)}`,
+        );
+      }
+      if (apiRes.status === 404) {
+        lastError = new Error(`${kind.toUpperCase()} ${month}: not yet published`);
         continue;
       }
-      if (!res.ok) {
-        lastError = new Error(`${month}: HTTP ${res.status}`);
+      if (!apiRes.ok) {
+        lastError = new Error(`${kind.toUpperCase()} ${month}: HTTP ${apiRes.status}`);
         continue;
       }
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('csv') && !contentType.includes('octet-stream') && !contentType.includes('text/plain')) {
+
+      const apiBody = await apiRes.json();
+      // Some HMLR endpoints reply with { result: { download_url }, success: true }
+      const csvUrl =
+        apiBody?.url ||
+        apiBody?.download_url ||
+        apiBody?.result?.download_url ||
+        apiBody?.result?.url ||
+        (apiBody?.result === 'redirect' ? apiBody?.url : null);
+      if (!csvUrl) {
         lastError = new Error(
-          `${month}: response wasn't CSV (got ${contentType.slice(0, 60)}). The dataset URL likely requires session/CSRF — manual download needed.`,
+          `${kind.toUpperCase()} ${month}: API didn't return a CSV URL. Body keys: ${Object.keys(apiBody || {}).join(', ')}`,
         );
         continue;
       }
 
-      const text = await res.text();
+      // Step 2 — download the CSV from the presigned URL.
+      const csvRes = await fetch(csvUrl, { headers: { Accept: 'text/csv' } });
+      if (!csvRes.ok) {
+        lastError = new Error(`${kind.toUpperCase()} ${month}: CSV fetch ${csvRes.status}`);
+        continue;
+      }
+      const text = await csvRes.text();
       const idx = parseCsvIntoIndex(text, month);
       cache[kind] = { month, index: idx, fetchedAt: Date.now(), error: null };
       return idx;
@@ -118,21 +140,10 @@ async function lookupInDataset(kind) {
   throw lastError || new Error(`Could not fetch ${kind.toUpperCase()} for any of the last 3 months`);
 }
 
-function buildDownloadUrl(kind, month) {
-  const base = kind === 'ccod' ? CCOD_BASE : OCOD_BASE;
-  // Filename pattern: CCOD_FULL_YYYY_MM.csv / OCOD_FULL_YYYY_MM.csv
-  const fileName = `${kind.toUpperCase()}_FULL_${month}.csv`;
-  return `${base}/${fileName}`;
-}
-
 function parseCsvIntoIndex(csv, month) {
   const lines = csv.split(/\r?\n/);
-  if (lines.length < 2) {
-    throw new Error('Empty CSV');
-  }
+  if (lines.length < 2) throw new Error('Empty CSV');
   const headers = parseCsvLine(lines[0]);
-  // Find the company_registration_no column (CCOD field name).
-  // OCOD uses similar but different headers; we check several variants.
   const numberCol = headers.findIndex((h) =>
     /company.?registration.?no|company.?number|crn/i.test(h),
   );

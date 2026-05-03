@@ -48,49 +48,140 @@ export function CompanyCards({ report }) {
 }
 
 function VoaBusinessRatesCard({ report }) {
-  const v = report.voaLinks;
-  if (!v || !v.links?.length) return null;
+  const live = report.voaLive;
+  const links = report.voaLinks;
+  const liveError = report.voaLiveError;
+
+  const lookups = (live?.lookups || []).filter((l) => l && (l.count > 0 || l.error));
+  const totalProps = live?.totalProperties || 0;
+
+  if (!live && !links && !liveError) return null;
+
   return (
     <CardShell
       title="VOA business rates — commercial property at this address"
-      source="Source: Valuation Office Agency · GOV.UK"
+      source="Source: Valuation Office Agency · GOV.UK (live)"
     >
-      <p className="text-xs text-slate-600">{v.note}</p>
-      <ul className="space-y-1.5">
-        {v.links.map((l, i) => (
-          <li key={i}>
+      {totalProps > 0 ? (
+        <>
+          <p className="text-xs text-slate-600">
+            <strong className="text-ink">{totalProps}</strong> commercial property
+            {totalProps === 1 ? '' : 'ies'} on the VOA non-domestic rating list at the company&rsquo;s
+            registered postcode. Total rateable value:{' '}
+            <strong className="text-ink">
+              {formatGBP(
+                live.lookups
+                  .flatMap((l) => l.properties || [])
+                  .reduce((sum, p) => sum + (p.currentRateableValue || 0), 0),
+              )}
+            </strong>
+            .
+          </p>
+          {live.lookups.map((lk, i) =>
+            lk.properties && lk.properties.length > 0 ? (
+              <div key={i} className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-claude-700">
+                  {lk.label || 'Postcode'} · {lk.postcode} · {lk.count} entr
+                  {lk.count === 1 ? 'y' : 'ies'}
+                </p>
+                <ul className="space-y-1.5">
+                  {lk.properties.map((p, j) => (
+                    <li key={j} className="rounded-lg bg-cream-50 p-2 text-xs">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <span className="font-semibold text-ink">
+                          {p.propertyDescription || 'Commercial property'}
+                        </span>
+                        <span className="font-bold text-claude-700">
+                          {p.currentRateableValue != null
+                            ? `RV ${formatGBP(p.currentRateableValue)}`
+                            : 'No RV'}
+                        </span>
+                      </div>
+                      {p.address && <p className="text-slate-700">{p.address}</p>}
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-slate-500">
+                        {p.localAuthorityReference && (
+                          <span className="font-mono">{p.localAuthorityReference}</span>
+                        )}
+                        {p.effectiveDate && <span>· effective {p.effectiveDate}</span>}
+                        {p.listYear && <span>· {p.listYear} list</span>}
+                        {p.detailUrl && (
+                          <a
+                            href={p.detailUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-auto font-semibold text-claude-700 hover:underline"
+                          >
+                            View ↗
+                          </a>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                {lk.searchUrl && (
+                  <a
+                    href={lk.searchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-[11px] text-claude-700 hover:underline"
+                  >
+                    Open this search on VOA Find ↗
+                  </a>
+                )}
+              </div>
+            ) : null,
+          )}
+        </>
+      ) : live && live.available && totalProps === 0 ? (
+        <p className="text-sm text-slate-600">
+          No commercial property on the VOA non-domestic rating list at the registered postcode.
+          The company may operate from a residential address or trade entirely from leased
+          premises held by a different ratepayer.
+        </p>
+      ) : (
+        <div className="rounded-xl border border-warn-bg bg-warn-bg/30 p-3 text-xs">
+          <p className="font-semibold text-warn-text">
+            Live VOA lookup unavailable — using link-out
+          </p>
+          {liveError && <p className="mt-1 text-slate-700">{safeText(liveError)}</p>}
+          {!liveError && live?.error && (
+            <p className="mt-1 text-slate-700">{safeText(live.error)}</p>
+          )}
+        </div>
+      )}
+
+      {/* Always offer the official deep-link as a fallback */}
+      {links?.links?.length > 0 && (
+        <div className="border-t border-cream-200 pt-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Verify on official source
+          </p>
+          {links.links.map((l, i) => (
             <a
+              key={i}
               href={l.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
+              className="mt-1 block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
             >
               <span className="font-semibold text-claude-700">
-                🏢 {l.label} — {l.postcode} ↗
+                🔍 Open VOA Find for {l.postcode} ↗
               </span>
-              <span className="block text-slate-600">{l.address}</span>
             </a>
-          </li>
-        ))}
-      </ul>
-      {v.bulkDownload && (
-        <details className="border-t border-cream-200 pt-2 text-[11px] text-slate-600">
-          <summary className="cursor-pointer font-semibold text-claude-700">
-            Want every commercial property the company occupies anywhere in England & Wales?
-          </summary>
-          <a
-            href={v.bulkDownload.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 block rounded-lg bg-cream-50 p-2 hover:bg-cream-100"
-          >
-            <span className="font-semibold text-claude-700">📦 {v.bulkDownload.name} ↗</span>
-            <span className="block text-slate-500">{v.bulkDownload.note}</span>
-          </a>
-        </details>
+          ))}
+        </div>
       )}
     </CardShell>
   );
+}
+
+function formatGBP(value) {
+  if (value == null) return '—';
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 function FilingHealthCard({ report }) {
@@ -1185,13 +1276,4 @@ function VatStatusCard({ report }) {
       <Field label="Address" value={v.vatAddress} />
     </CardShell>
   );
-}
-
-function formatGBP(value) {
-  if (value == null) return '—';
-  return new Intl.NumberFormat('en-GB', {
-    style: 'currency',
-    currency: 'GBP',
-    maximumFractionDigits: 0,
-  }).format(value);
 }

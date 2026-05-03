@@ -966,6 +966,8 @@ export function buildCompanyFallbackReport({ companyInput, rawData }) {
     propertyHoldingsError: rawData?.propertyHoldingsError || null,
     propertyHoldingsLinks: buildPropertyHoldingsLinks(profile.company_number, profile.company_name),
     voaLinks: rawData?.voaLinks || null,
+    voaLive: rawData?.voaLive || null,
+    voaLiveError: rawData?.voaLiveError || null,
 
     flags: addSanctionsFlags(flags, rawData?.sanctions),
 
