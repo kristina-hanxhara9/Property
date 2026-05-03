@@ -314,14 +314,19 @@ app.post('/api/property-check', async (req, res) => {
       'ONS Nomis — earnings, employment, population (free)',
       () => fetchNomisProfile(adminDistrictCode),
     );
-    // If Nomis succeeded but had partial failures, emit a follow-up step so
-    // the user sees exactly which sub-datasets came back empty.
+    // If Nomis succeeded but had partial failures, emit a follow-up step
+    // for transparency. We mark these as "complete" rather than "failed"
+    // because the absence of data for a specific dataset/LA is a genuine
+    // ONS gap, not an integration error — the report still gets the slices
+    // that did come through (e.g. earnings + population).
     if (result.ok && result.value?.partialFailures?.length) {
+      const empty = result.value.partialFailures
+        .map((p) => p.replace(/^([a-z]+):.*$/i, '$1'))
+        .join(', ');
       sseSend(res, 'step', {
         name: 'nomis-partial',
-        label: `Nomis partial: ${result.value.partialFailures.join(' · ')}`,
-        status: 'failed',
-        error: 'Some Nomis datasets returned no data for this LA.',
+        label: `Nomis: ${empty} not published by ONS for this LA`,
+        status: 'complete',
       });
     }
     return result;

@@ -88,19 +88,30 @@ export function SchoolsCard({ report }) {
   const s = report.schools;
   if (!s) return null;
   const list = s.schools || [];
+  const ratedCount = s.ratedCount ?? list.filter((sch) => sch.ofstedRating).length;
   return (
-    <CardShell title="Nearby schools (1 mile)" source="Source: OpenStreetMap + GOV.UK Compare Schools">
+    <CardShell
+      title="Nearby schools (1 mile)"
+      source="Source: OpenStreetMap + Ofsted Reports (live)"
+    >
+      {ratedCount > 0 && (
+        <div className="rounded-xl bg-claude-50 p-2 text-xs text-claude-700">
+          <strong>{ratedCount}</strong> of {list.length} schools have a live Ofsted rating from
+          reports.ofsted.gov.uk.
+        </div>
+      )}
       {list.length === 0 ? (
         <p className="text-sm text-slate-500">
           {safeText(s.error || s.note, 'No schools tagged in OpenStreetMap for this area.')}
         </p>
       ) : (
         <ul className="space-y-2">
-          {list.slice(0, 6).map((sch, i) => {
+          {list.slice(0, 8).map((sch, i) => {
             const name = safeText(sch.name, '(unnamed school)');
             const phaseOrType = safeText(sch.phase || sch.type, '');
             const ageRange = safeText(sch.ageRange, '');
             const ofsted = safeText(sch.ofstedRating, '');
+            const ofstedDate = safeText(sch.ofstedDate, '');
             const subtitle = [
               phaseOrType,
               ageRange ? `ages ${ageRange}` : '',
@@ -123,6 +134,23 @@ export function SchoolsCard({ report }) {
                 {sch.address && (
                   <p className="mt-0.5 text-xs text-slate-500">{safeText(sch.address)}</p>
                 )}
+                {(ofstedDate || sch.ofstedReportUrl) && (
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                    {ofstedDate && (
+                      <span className="text-slate-500">Inspected {ofstedDate}</span>
+                    )}
+                    {sch.ofstedReportUrl && (
+                      <a
+                        href={sch.ofstedReportUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-auto font-semibold text-claude-700 hover:underline"
+                      >
+                        Ofsted report ↗
+                      </a>
+                    )}
+                  </div>
+                )}
               </li>
             );
           })}
@@ -136,10 +164,10 @@ export function SchoolsCard({ report }) {
           className="block rounded-lg bg-cream-50 p-2 text-xs hover:bg-cream-100"
         >
           <span className="font-semibold text-claude-700">
-            🎓 Compare School Performance — Ofsted ratings + GCSE results ↗
+            🎓 Open Ofsted reports for this postcode ↗
           </span>
           <span className="block text-slate-600">
-            Search by postcode for official Ofsted ratings, attainment data, and Progress 8 scores.
+            Verify ratings + view full inspection PDFs on the official Ofsted Reports site.
           </span>
         </a>
       )}

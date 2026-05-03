@@ -42,45 +42,66 @@ export async function fetchPlanningApplications({ postcode, latitude, longitude,
 }
 
 // Address-level history: pulls every planning application PlanIt has on
-// record for the exact street/property text. Used to surface a property's
-// own application history (extensions, conversions, refusals) — distinct
-// from the proximity-sorted "what's happening nearby" list.
+// record at the exact postcode, then filters by the street fragment client-
+// side. Used to surface a property's own application history (extensions,
+// conversions, refusals) — distinct from the proximity-sorted "what's
+// happening nearby" list.
+//
+// PlanIt's `search` param sometimes 400s when combined with `pcode`, so we
+// pull a generous postcode-level page and filter in JS instead. This is the
+// most reliable approach across PlanIt's quirks.
 export async function fetchPlanningApplicationsForAddress({
   postcode,
   addressFragment,
-  limit = 25,
+  limit = 50,
 }) {
   if (!postcode && !addressFragment) return { count: 0, total: 0, applications: [] };
 
+  const fragment = addressFragment ? extractStreetFragment(addressFragment) : null;
+
   const url = new URL(BASE_URL);
-  url.searchParams.set('pg_sz', String(limit));
-  url.searchParams.set('sort', '-start_date');
+  url.searchParams.set('pg_sz', String(Math.min(100, limit * 2)));
   if (postcode) url.searchParams.set('pcode', postcode);
-  // PlanIt supports a free-text `search` param that scans description +
-  // address fields. We use the most distinctive part of the address (the
-  // street + house number) to filter the postcode list down to one property.
-  if (addressFragment) {
-    const fragment = extractStreetFragment(addressFragment);
-    if (fragment) url.searchParams.set('search', fragment);
-  }
 
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!res.ok) {
-    throw new Error(`PlanIt address-level returned ${res.status}`);
+    // Soft-fail. The proximity query already covers the area; the address-
+    // level enrichment is an upgrade, not a hard requirement.
+    return {
+      count: 0,
+      total: 0,
+      applications: [],
+      summary: null,
+      fragment,
+      note: `PlanIt returned ${res.status} for postcode-level address search`,
+    };
   }
   const body = await res.json();
   const records = body?.records || body?.applics || [];
-  const applications = records.map(normalisePlanitRecord);
+  let applications = records.map(normalisePlanitRecord);
+
+  // Filter to the specific property by matching the street fragment in the
+  // address or description fields. If we don't have a fragment, return the
+  // whole postcode list (still scoped tighter than the 400m proximity query).
+  if (fragment) {
+    const needle = fragment.toLowerCase();
+    applications = applications.filter((a) => {
+      const haystack = `${a.address || ''} ${a.description || ''}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }
+
+  applications = applications.slice(0, limit);
 
   // Group by status for the UI traffic-light summary.
   const summary = summariseApplications(applications);
 
   return {
-    count: records.length,
-    total: body?.total || records.length,
+    count: applications.length,
+    total: body?.total || applications.length,
     applications,
     summary,
-    fragment: addressFragment ? extractStreetFragment(addressFragment) : null,
+    fragment,
   };
 }
 
