@@ -35,8 +35,16 @@ const SEVERITY_COLORS = {
   critical: COLOR_CRIT,
 };
 
-export async function buildPropertyDocx(report, rawData, { investmentMemo } = {}) {
+export async function buildPropertyDocx(report, _rawData, { investmentMemo, agentResults } = {}) {
   const memoBlocks = investmentMemo ? memoSection(investmentMemo) : [];
+  const a = agentResults || {};
+  const agentBlocks = [
+    ...(a.comparables ? [...sectionHeaderArr('Market comparables (AI agent)'), ...comparablesAgentSection(a.comparables)] : []),
+    ...(a.avm ? [...sectionHeaderArr('AVM / Sale valuation (AI agent)'), ...avmAgentSection(a.avm)] : []),
+    ...(a.hmoRents ? [...sectionHeaderArr('HMO rents & yields (AI agent)'), ...hmoRentsAgentSection(a.hmoRents)] : []),
+    ...(a.commercialRents ? [...sectionHeaderArr('Commercial rents (AI agent)'), ...commercialRentsAgentSection(a.commercialRents)] : []),
+    ...(a.constructionCost ? [...sectionHeaderArr('Construction cost estimate (AI agent)'), ...constructionCostAgentSection(a.constructionCost)] : []),
+  ];
   const sections = [
     {
       properties: { page: { margin: { top: 720, bottom: 720, left: 720, right: 720 } } },
@@ -65,12 +73,12 @@ export async function buildPropertyDocx(report, rawData, { investmentMemo } = {}
         ...flagsSection(report),
         sectionHeader('Recommended next steps'),
         ...nextStepsSection(report),
+        ...(agentBlocks.length
+          ? [new Paragraph({ children: [new PageBreak()] }), ...agentBlocks]
+          : []),
         ...(memoBlocks.length
           ? [new Paragraph({ children: [new PageBreak()] }), ...memoBlocks]
           : []),
-        new Paragraph({ children: [new PageBreak()] }),
-        sectionHeader('Raw data — all API fields'),
-        ...rawDataSection(rawData || {}),
         ...disclaimer(),
       ],
     },
@@ -91,7 +99,13 @@ export async function buildPropertyDocx(report, rawData, { investmentMemo } = {}
   return await Packer.toBuffer(doc);
 }
 
-export async function buildCompanyDocx(report, rawData) {
+export async function buildCompanyDocx(report, _rawData, { agentResults } = {}) {
+  const a = agentResults || {};
+  const agentBlocks = [
+    ...(a.adverseMedia ? [...sectionHeaderArr('Adverse media screening (AI agent)'), ...adverseMediaAgentSection(a.adverseMedia)] : []),
+    ...(a.corporateProperties ? [...sectionHeaderArr('Corporate property holdings (AI agent)'), ...corporatePropertiesAgentSection(a.corporateProperties)] : []),
+    ...(a.vatLookup ? [...sectionHeaderArr('VAT lookup (AI agent)'), ...vatLookupAgentSection(a.vatLookup)] : []),
+  ];
   const sections = [
     {
       properties: { page: { margin: { top: 720, bottom: 720, left: 720, right: 720 } } },
@@ -114,9 +128,9 @@ export async function buildCompanyDocx(report, rawData) {
         ...flagsSection(report),
         sectionHeader('Recommended due diligence'),
         ...nextStepsSection(report),
-        new Paragraph({ children: [new PageBreak()] }),
-        sectionHeader('Raw data — all API fields'),
-        ...rawDataSection(rawData || {}),
+        ...(agentBlocks.length
+          ? [new Paragraph({ children: [new PageBreak()] }), ...agentBlocks]
+          : []),
         ...disclaimer(),
       ],
     },
@@ -606,42 +620,6 @@ function vatSection(report) {
 }
 
 // Dump the entire raw API responses so the user can see every field.
-function rawDataSection(rawData) {
-  const blocks = [];
-  for (const [key, value] of Object.entries(rawData)) {
-    if (value == null) continue;
-    blocks.push(subHeader(`Source: ${key}`));
-    const pretty = JSON.stringify(value, null, 2);
-    // Word handles long pre-formatted blocks fine if we feed line by line.
-    for (const line of pretty.split('\n').slice(0, 200)) {
-      blocks.push(
-        new Paragraph({
-          spacing: { after: 0 },
-          children: [
-            new TextRun({
-              text: line || ' ',
-              font: 'Consolas',
-              size: 16,
-              color: COLOR_INK,
-            }),
-          ],
-        }),
-      );
-    }
-    if (pretty.split('\n').length > 200) {
-      blocks.push(
-        paragraph(`… (${pretty.split('\n').length - 200} more lines truncated)`, {
-          italic: true,
-          color: COLOR_MUTED,
-          size: 16,
-        }),
-      );
-    }
-    blocks.push(spacer());
-  }
-  return blocks;
-}
-
 function disclaimer() {
   return [
     new Paragraph({
@@ -675,6 +653,226 @@ function sectionHeader(text) {
       new TextRun({ text, bold: true, size: 28, color: COLOR_CLAUDE_700 }),
     ],
   });
+}
+
+// Array form so spreading is consistent with the per-section helpers.
+function sectionHeaderArr(text) {
+  return [sectionHeader(text)];
+}
+
+// ── AI agent renderers ───────────────────────────────────────────────────────
+// Each renderer takes the JSON returned by an agent and produces a list of
+// docx Paragraph / Table blocks. Sections are only included when the user
+// has actually run the agent (Report.jsx state).
+
+function agentCaveat(text) {
+  return paragraph(text, { italic: true, color: COLOR_MUTED, size: 18 });
+}
+
+function comparablesAgentSection(d) {
+  const blocks = [];
+  if (d?.summary) blocks.push(paragraph(d.summary));
+  if (d?.askingRentRange?.midpoint) {
+    blocks.push(
+      paragraph(
+        `Asking rent range: ${formatGBP(d.askingRentRange.low)} – ${formatGBP(d.askingRentRange.high)} (mid ${formatGBP(d.askingRentRange.midpoint)})/mo`,
+        { bold: true },
+      ),
+    );
+  }
+  if (d?.estimatedGrossYieldPct) {
+    blocks.push(
+      paragraph(
+        `Estimated gross yield: ${d.estimatedGrossYieldPct.low}% – ${d.estimatedGrossYieldPct.high}%`,
+      ),
+    );
+  }
+  const list = d?.comparables || [];
+  if (list.length) {
+    blocks.push(subHeader(`Comparable listings (${list.length})`));
+    for (const c of list.slice(0, 12)) {
+      blocks.push(
+        paragraph(
+          `${c.address || '—'} — ${formatGBP(c.askingRent)}${c.bedrooms ? ` · ${c.bedrooms}-bed` : ''}${c.propertyType ? ` · ${c.propertyType}` : ''}${c.source ? ` · ${c.source}` : ''}`,
+        ),
+      );
+    }
+  }
+  blocks.push(agentCaveat('AI-derived from public listings — asking rents only, verify against original source.'));
+  return blocks;
+}
+
+function avmAgentSection(d) {
+  const blocks = [];
+  const v = d?.valuation || {};
+  if (v.midPointEstimate || v.askingPriceLow) {
+    blocks.push(
+      paragraph(
+        `Mid-point estimate: ${formatGBP(v.midPointEstimate)} · Asking range ${formatGBP(v.askingPriceLow)}–${formatGBP(v.askingPriceHigh)} · Likely achieved ${formatGBP(v.achievedPriceEstimateLow)}–${formatGBP(v.achievedPriceEstimateHigh)}`,
+        { bold: true },
+      ),
+    );
+  }
+  if (v.pricePerSqFtLow || v.pricePerSqFtHigh) {
+    blocks.push(paragraph(`£/sqft range: £${v.pricePerSqFtLow ?? '?'} – £${v.pricePerSqFtHigh ?? '?'} · Confidence: ${d.confidence || 'unstated'}`));
+  }
+  const list = d?.comparables || [];
+  if (list.length) {
+    blocks.push(subHeader(`Comparable sale listings (${list.length})`));
+    for (const c of list.slice(0, 12)) {
+      blocks.push(
+        paragraph(
+          `${c.address || '—'} — ${formatGBP(c.askingPrice)}${c.bedrooms ? ` · ${c.bedrooms}-bed` : ''}${c.floorAreaSqM ? ` · ${c.floorAreaSqM} m²` : ''}${c.pricePerSqFt ? ` · £${c.pricePerSqFt}/sqft` : ''}${c.source ? ` · ${c.source}` : ''}`,
+        ),
+      );
+    }
+  }
+  blocks.push(agentCaveat('Asking-price evidence — not a regulated lender-grade AVM.'));
+  return blocks;
+}
+
+function hmoRentsAgentSection(d) {
+  if (!d?.found) {
+    return [paragraph(d?.summary || 'No HMO rent evidence found nearby.')];
+  }
+  const blocks = [];
+  if (d.perRoomRentRange) {
+    blocks.push(
+      paragraph(
+        `Per-room rent: ${formatGBP(d.perRoomRentRange.low)}–${formatGBP(d.perRoomRentRange.high)}/mo (mid ${formatGBP(d.perRoomRentRange.midpoint)})`,
+        { bold: true },
+      ),
+    );
+  }
+  if (d.estimatedHmoIncome) {
+    const fb = d.estimatedHmoIncome.fiveBed;
+    const sb = d.estimatedHmoIncome.sixBed;
+    if (fb) blocks.push(paragraph(`5-bed HMO income: ${formatGBP(fb.annual)}/yr (${formatGBP(fb.monthly)}/mo)`));
+    if (sb) blocks.push(paragraph(`6-bed HMO income: ${formatGBP(sb.annual)}/yr (${formatGBP(sb.monthly)}/mo)`));
+  }
+  if (d.estimatedGrossYieldPct) {
+    const fb = d.estimatedGrossYieldPct.fiveBed;
+    const sb = d.estimatedGrossYieldPct.sixBed;
+    if (fb) blocks.push(paragraph(`5-bed gross yield: ${fb.low}% – ${fb.high}%`));
+    if (sb) blocks.push(paragraph(`6-bed gross yield: ${sb.low}% – ${sb.high}%`));
+  }
+  if (d.licensingAndArticle4) blocks.push(paragraph(`Licensing / Article 4: ${d.licensingAndArticle4}`, { italic: true }));
+  const rooms = d?.rooms || [];
+  if (rooms.length) {
+    blocks.push(subHeader(`Sample room listings (${rooms.length})`));
+    for (const r of rooms.slice(0, 10)) {
+      blocks.push(
+        paragraph(
+          `${r.address || '—'} — ${formatGBP(r.monthlyRent)}/mo${r.roomType ? ` · ${r.roomType}` : ''}${r.billsIncluded ? ' · bills inc' : ''}${r.source ? ` · ${r.source}` : ''}`,
+        ),
+      );
+    }
+  }
+  blocks.push(agentCaveat('Per-room rents from public listings — assumes full occupancy. Article 4 + LA HMO licensing rules apply.'));
+  return blocks;
+}
+
+function commercialRentsAgentSection(d) {
+  if (!d?.found || !(d?.byAssetClass || []).length) {
+    return [paragraph(d?.summary || 'No commercial comparables found nearby.')];
+  }
+  const blocks = [paragraph(d.summary || '')];
+  for (const c of d.byAssetClass) {
+    blocks.push(subHeader(c.assetClass || 'Asset class'));
+    if (c.rentRangePerSqFt) {
+      blocks.push(paragraph(`Rent £/sqft: £${c.rentRangePerSqFt.low ?? '?'} – £${c.rentRangePerSqFt.high ?? '?'}${c.rentRangePerSqFt.midpoint ? ` (mid £${c.rentRangePerSqFt.midpoint})` : ''}`));
+    }
+    if (c.typicalYieldPct) {
+      blocks.push(paragraph(`Yield range: ${c.typicalYieldPct.low ?? '?'}% – ${c.typicalYieldPct.high ?? '?'}%`));
+    }
+    if (c.evidenceNote) blocks.push(paragraph(c.evidenceNote, { italic: true }));
+    for (const cmp of (c.comparables || []).slice(0, 5)) {
+      blocks.push(
+        paragraph(
+          `${cmp.address || '—'} — ${cmp.askingRent || '—'}${cmp.size ? ` · ${cmp.size}` : ''}${cmp.leaseTerm ? ` · ${cmp.leaseTerm}` : ''}${cmp.source ? ` · ${cmp.source}` : ''}`,
+        ),
+      );
+    }
+  }
+  blocks.push(agentCaveat('Asking rents only. CoStar / Realla paid services have transacted rents and are more authoritative for institutional work.'));
+  return blocks;
+}
+
+function constructionCostAgentSection(d) {
+  const blocks = [];
+  if (d?.location) blocks.push(paragraph(`Region: ${d.location}`));
+  for (const e of d?.estimates || []) {
+    blocks.push(subHeader(e.scope || 'Estimate'));
+    if (e.ratePerSqM) {
+      blocks.push(paragraph(`£/m²: £${e.ratePerSqM.low ?? '?'} – £${e.ratePerSqM.high ?? '?'}${e.ratePerSqM.midpoint ? ` (mid £${e.ratePerSqM.midpoint})` : ''}`));
+    }
+    if (e.ratePerSqFt) {
+      blocks.push(paragraph(`£/sqft: £${e.ratePerSqFt.low ?? '?'} – £${e.ratePerSqFt.high ?? '?'}${e.ratePerSqFt.midpoint ? ` (mid £${e.ratePerSqFt.midpoint})` : ''}`));
+    }
+    if (e.notes) blocks.push(paragraph(e.notes));
+    for (const s of e.sourcesCited || []) {
+      blocks.push(paragraph(`Source: ${s.name}${s.publishedDate ? ` (${s.publishedDate})` : ''}${s.url ? ` — ${s.url}` : ''}`, { color: COLOR_MUTED, size: 18 }));
+    }
+  }
+  if (d?.professionalFees) blocks.push(paragraph(`Professional fees: ${d.professionalFees}`));
+  if (d?.contingency) blocks.push(paragraph(`Contingency: ${d.contingency}`));
+  blocks.push(agentCaveat('Indicative. Not a substitute for project-specific QS cost planning.'));
+  return blocks;
+}
+
+function adverseMediaAgentSection(d) {
+  const blocks = [];
+  if (d?.overallVerdict) blocks.push(paragraph(`Overall verdict: ${d.overallVerdict}`, { bold: true }));
+  if (d?.summary) blocks.push(paragraph(d.summary));
+  const counts = [];
+  if (d?.criticalCount) counts.push(`${d.criticalCount} critical`);
+  if (d?.warningCount) counts.push(`${d.warningCount} warning`);
+  if (d?.informationalCount) counts.push(`${d.informationalCount} informational`);
+  if (counts.length) blocks.push(paragraph(counts.join(' · ')));
+  for (const f of d?.findings || []) {
+    blocks.push(subHeader(`[${(f.severity || 'info').toUpperCase()}] ${f.headline || ''}`));
+    if (f.detail) blocks.push(paragraph(f.detail));
+    blocks.push(paragraph(`${f.source || ''}${f.date ? ` · ${f.date}` : ''}${f.verified ? ' · ✓ Verified' : ' · Unverified'}${f.sourceUrl ? ` — ${f.sourceUrl}` : ''}`, { color: COLOR_MUTED, size: 18 }));
+  }
+  blocks.push(agentCaveat('Limited to publicly indexed news. Verify each finding against the original source.'));
+  return blocks;
+}
+
+function corporatePropertiesAgentSection(d) {
+  if (!d?.found) {
+    return [paragraph(d?.summary || 'No specific properties evidenced.')];
+  }
+  const blocks = [paragraph(`${d.totalFound || (d.properties || []).length} properties evidenced`, { bold: true })];
+  if (d.summary) blocks.push(paragraph(d.summary));
+  for (const p of d.properties || []) {
+    blocks.push(subHeader(p.address || 'Property'));
+    blocks.push(
+      paragraph(
+        `${p.relationship || ''}${p.type ? ` · ${p.type}` : ''}${p.town ? ` · ${p.town}` : ''}${p.postcode ? ` · ${p.postcode}` : ''}${p.yearAcquired ? ` · acquired ${p.yearAcquired}` : ''}${p.yearDisposed ? ` · disposed ${p.yearDisposed}` : ''}${p.value ? ` · ${p.value}` : ''}`,
+      ),
+    );
+    if (p.evidenceQuote) blocks.push(paragraph(`"${p.evidenceQuote}"`, { italic: true }));
+    if (p.source) blocks.push(paragraph(`Source: ${p.source}${p.sourceUrl ? ` — ${p.sourceUrl}` : ''}`, { color: COLOR_MUTED, size: 18 }));
+  }
+  blocks.push(agentCaveat('Web-derived evidence only — surfaces the most-publicised holdings, not every title.'));
+  return blocks;
+}
+
+function vatLookupAgentSection(d) {
+  if (!d?.found) {
+    return [paragraph(d?.explanation || 'VAT number not found.')];
+  }
+  const blocks = [
+    paragraph(`VAT number: ${d.vatNumber || '—'}`, { bold: true }),
+    paragraph(`Status: ${d.verifiedActive ? '✓ Verified active' : 'Found, not verified active'}`),
+  ];
+  if (d.vatRegisteredName) blocks.push(paragraph(`Registered name: ${d.vatRegisteredName}`));
+  if (d.vatAddress) blocks.push(paragraph(`Registered address: ${d.vatAddress}`));
+  if (d.explanation) blocks.push(paragraph(d.explanation));
+  for (const s of d.sources || []) {
+    blocks.push(paragraph(`Source: ${s.publisher || s.url || ''}${s.url ? ` — ${s.url}` : ''}`, { color: COLOR_MUTED, size: 18 }));
+  }
+  return blocks;
 }
 
 function subHeader(text) {

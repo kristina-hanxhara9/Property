@@ -38,7 +38,12 @@ export default function Report({
   const [pendingPrompt, setPendingPrompt] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [investmentMemo, setInvestmentMemo] = useState(null);
+  const [agentResults, setAgentResults] = useState({});
   const reportType = mode === 'company' ? 'company' : 'property';
+
+  function setAgentResult(key, data) {
+    setAgentResults((prev) => ({ ...prev, [key]: data }));
+  }
 
   async function handleDownloadDocx() {
     if (!report || downloading) return;
@@ -47,7 +52,7 @@ export default function Report({
       const res = await fetch(apiUrl('/api/export-docx'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ report, rawData: rawData || {}, investmentMemo }),
+        body: JSON.stringify({ report, investmentMemo, agentResults }),
       });
       if (!res.ok) {
         const txt = await res.text();
@@ -130,20 +135,20 @@ export default function Report({
           {reportType === 'property' && (
             <>
               <InvestmentMemoCard report={report} onMemoReady={setInvestmentMemo} />
-              <MarketComparables report={report} />
-              <AvmAgentCard report={report} />
-              <HmoRentsAgentCard report={report} />
-              <CommercialRentsAgentCard report={report} />
-              <ConstructionCostAgentCard report={report} />
+              <MarketComparables report={report} onResult={(d) => setAgentResult('comparables', d)} />
+              <AvmAgentCard report={report} onResult={(d) => setAgentResult('avm', d)} />
+              <HmoRentsAgentCard report={report} onResult={(d) => setAgentResult('hmoRents', d)} />
+              <CommercialRentsAgentCard report={report} onResult={(d) => setAgentResult('commercialRents', d)} />
+              <ConstructionCostAgentCard report={report} onResult={(d) => setAgentResult('constructionCost', d)} />
             </>
           )}
 
           {reportType === 'company' && (
             <>
-              <CorporatePropertiesAgentCard report={report} />
-              <AdverseMediaAgentCard report={report} />
+              <CorporatePropertiesAgentCard report={report} onResult={(d) => setAgentResult('corporateProperties', d)} />
+              <AdverseMediaAgentCard report={report} onResult={(d) => setAgentResult('adverseMedia', d)} />
               <VatVerifyCard />
-              <VatLookupAgentCard report={report} />
+              <VatLookupAgentCard report={report} onResult={(d) => setAgentResult('vatLookup', d)} />
             </>
           )}
 

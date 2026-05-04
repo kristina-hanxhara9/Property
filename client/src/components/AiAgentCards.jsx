@@ -6,7 +6,7 @@
 import AgentRunnerCard, { formatGBP } from './AgentRunnerCard.jsx';
 import { safeText } from '../lib/safeText.js';
 
-export function AvmAgentCard({ report }) {
+export function AvmAgentCard({ report, onResult }) {
   const postcode = report?.queryInput?.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[1];
   const body = {
     address: report?.queryInput,
@@ -25,6 +25,7 @@ export function AvmAgentCard({ report }) {
       body={body}
       eventName="avm"
       buttonLabel="Run AVM agent"
+      onResult={onResult}
       caveats={[
         'Asking prices, not transacted prices — achieved values typically 3-8% below.',
         'Not regulated — NOT acceptable as a lender-grade AVM.',
@@ -105,7 +106,7 @@ function AvmResult({ data }) {
   );
 }
 
-export function CommercialRentsAgentCard({ report }) {
+export function CommercialRentsAgentCard({ report, onResult }) {
   const postcode = report?.queryInput?.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[1];
   const body = {
     postcode: postcode || '',
@@ -120,6 +121,7 @@ export function CommercialRentsAgentCard({ report }) {
       body={body}
       eventName="commercial-rents"
       buttonLabel="Run commercial rents agent"
+      onResult={onResult}
       caveats={[
         'Asking rents only — typically 5-10% above achieved.',
         'For institutional valuation work CoStar / Realla paid is essential — they have transacted rents and tenant identities.',
@@ -189,7 +191,7 @@ function CommercialRentsResult({ data }) {
   );
 }
 
-export function HmoRentsAgentCard({ report }) {
+export function HmoRentsAgentCard({ report, onResult }) {
   const postcode = report?.queryInput?.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[1];
   const body = {
     postcode: postcode || '',
@@ -206,6 +208,7 @@ export function HmoRentsAgentCard({ report }) {
       body={body}
       eventName="hmo-rents"
       buttonLabel="Run HMO yield agent"
+      onResult={onResult}
       caveats={[
         'Per-room rents from public listings — typically 3-8% above achieved.',
         'HMO yield assumes you can let every room every month (void + bills should reduce by ~10-15%).',
@@ -326,7 +329,7 @@ function HmoRentsResult({ data }) {
   );
 }
 
-export function ConstructionCostAgentCard({ report }) {
+export function ConstructionCostAgentCard({ report, onResult }) {
   const postcode = report?.queryInput?.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[1];
   const body = {
     address: report?.queryInput,
@@ -343,6 +346,7 @@ export function ConstructionCostAgentCard({ report }) {
       body={body}
       eventName="construction-cost"
       buttonLabel="Run cost agent"
+      onResult={onResult}
       caveats={[
         'Indicative only — not a substitute for project-specific QS cost planning.',
         'Public commentary on BCIS data, not the BCIS subscription itself.',
@@ -400,7 +404,7 @@ function ConstructionCostResult({ data }) {
   );
 }
 
-export function CorporatePropertiesAgentCard({ report }) {
+export function CorporatePropertiesAgentCard({ report, onResult }) {
   const body = {
     companyName: report?.companyProfile?.officialName || report?.queryInput,
     companyNumber: report?.companyProfile?.companyNumber,
@@ -413,6 +417,7 @@ export function CorporatePropertiesAgentCard({ report }) {
       body={body}
       eventName="corporate-properties"
       buttonLabel="Run holdings agent"
+      onResult={onResult}
       noteCost="~$0.10–0.20 per run"
       caveats={[
         'Web-derived evidence only — surfaces the most-publicised holdings, not every title.',
@@ -482,7 +487,7 @@ function CorporatePropertiesResult({ data }) {
   );
 }
 
-export function VatLookupAgentCard({ report }) {
+export function VatLookupAgentCard({ report, onResult }) {
   const body = {
     companyName: report?.companyProfile?.officialName || report?.queryInput,
     companyNumber: report?.companyProfile?.companyNumber,
@@ -495,6 +500,7 @@ export function VatLookupAgentCard({ report }) {
       body={body}
       eventName="vat-lookup"
       buttonLabel="Run VAT lookup"
+      onResult={onResult}
       noteCost="~$0.05–0.10 per run"
       caveats={[
         'Reports "not found" honestly — never guesses a VAT number.',
@@ -574,7 +580,7 @@ function VatLookupResult({ data }) {
   );
 }
 
-export function AdverseMediaAgentCard({ report }) {
+export function AdverseMediaAgentCard({ report, onResult }) {
   const body = {
     companyName: report?.companyProfile?.officialName || report?.queryInput,
     companyNumber: report?.companyProfile?.companyNumber,
@@ -588,6 +594,7 @@ export function AdverseMediaAgentCard({ report }) {
       body={body}
       eventName="adverse-media"
       buttonLabel="Run adverse media agent"
+      onResult={onResult}
       noteCost="~$0.10–0.20 per run"
       caveats={[
         'Limited to publicly indexed news — not a substitute for paid news monitoring.',

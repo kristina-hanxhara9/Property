@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { streamPostSSE } from '../lib/sseClient.js';
 import { apiUrl } from '../lib/api.js';
 
-export default function MarketComparables({ report }) {
+export default function MarketComparables({ report, onResult }) {
   const [state, setState] = useState('idle'); // idle | running | done | error | unavailable
   const [data, setData] = useState(null);
   const [streamingText, setStreamingText] = useState('');
@@ -63,6 +63,7 @@ export default function MarketComparables({ report }) {
           } else if (ev.event === 'comparables') {
             setData(ev.data);
             setState('done');
+            onResult?.(ev.data);
           } else if (ev.event === 'error') {
             setErrorMessage(ev.data?.message || 'Comparables agent failed.');
             setState('error');

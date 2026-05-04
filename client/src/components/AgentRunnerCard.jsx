@@ -20,6 +20,7 @@ export default function AgentRunnerCard({
   ],
   renderResult,
   buttonLabel = 'Run agent',
+  onResult,
 }) {
   const [state, setState] = useState('idle'); // idle | running | done | error | unavailable
   const [data, setData] = useState(null);
@@ -70,6 +71,7 @@ export default function AgentRunnerCard({
           } else if (ev.event === eventName) {
             setData(ev.data);
             setState('done');
+            onResult?.(ev.data);
           } else if (ev.event === 'error') {
             setErrorMessage(ev.data?.message || 'Agent failed.');
             setState('error');

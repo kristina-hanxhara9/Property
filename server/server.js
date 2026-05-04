@@ -1019,7 +1019,7 @@ app.post('/api/comparables', async (req, res) => {
 });
 
 app.post('/api/export-docx', async (req, res) => {
-  const { report, rawData, investmentMemo } = req.body || {};
+  const { report, investmentMemo, agentResults } = req.body || {};
   if (!report || !report.reportType) {
     res.status(400).json({ error: 'report (with reportType) required.' });
     return;
@@ -1027,8 +1027,8 @@ app.post('/api/export-docx', async (req, res) => {
   try {
     const buf =
       report.reportType === 'company'
-        ? await buildCompanyDocx(report, rawData || {})
-        : await buildPropertyDocx(report, rawData || {}, { investmentMemo });
+        ? await buildCompanyDocx(report, null, { agentResults })
+        : await buildPropertyDocx(report, null, { investmentMemo, agentResults });
 
     const safeName = String(report.queryInput || 'report')
       .replace(/[^a-z0-9-]+/gi, '_')
