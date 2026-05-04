@@ -315,10 +315,15 @@ function pickBestRecord(results, addressHint) {
   if (results.length === 1) return results[0];
   if (!addressHint) return results[0];
   const hint = String(addressHint).toUpperCase();
-  const ranked = [...results].map((r) => ({
-    r,
-    score: scoreMatch(String(r.address || '').toUpperCase(), hint),
-  }));
+  const hintNumber = extractHouseNumber(hint);
+  const ranked = [...results].map((r) => {
+    const candidate = String(r.address || '').toUpperCase();
+    const candidateNumber = extractLeadingNumber(r.addressLine1) || extractHouseNumber(candidate);
+    return {
+      r,
+      score: scoreMatch(candidate, hint, { hintNumber, candidateNumber }),
+    };
+  });
   ranked.sort((a, b) => b.score - a.score);
   return ranked[0].r;
 }
@@ -328,13 +333,18 @@ function pickBestSearchRecord(records, addressHint) {
   if (records.length === 1) return records[0];
   if (!addressHint) return records[0];
   const hint = String(addressHint).toUpperCase();
-  const ranked = [...records].map((r) => ({
-    r,
-    score: scoreMatch(
-      [r.addressLine1, r.addressLine2, r.postTown].filter(Boolean).join(' ').toUpperCase(),
-      hint,
-    ),
-  }));
+  const hintNumber = extractHouseNumber(hint);
+  const ranked = [...records].map((r) => {
+    const candidate = [r.addressLine1, r.addressLine2, r.postTown]
+      .filter(Boolean)
+      .join(' ')
+      .toUpperCase();
+    const candidateNumber = extractLeadingNumber(r.addressLine1) || extractHouseNumber(candidate);
+    return {
+      r,
+      score: scoreMatch(candidate, hint, { hintNumber, candidateNumber }),
+    };
+  });
   ranked.sort((a, b) => b.score - a.score);
   return ranked[0].r;
 }
@@ -366,11 +376,61 @@ function mergeDetailIntoMatch(base, detail) {
   return merged;
 }
 
-function scoreMatch(a, b) {
+function scoreMatch(candidate, hint, { hintNumber, candidateNumber } = {}) {
   let score = 0;
-  const tokens = b.split(/[\s,]+/).filter(Boolean);
+
+  // House-number gate. If the user supplied "9 Islip Manor Road" we MUST land
+  // on the certificate whose own first-line house number is 9 — otherwise
+  // every other certificate at the same postcode (28, 30, …) ties on the
+  // street name. Strong positive on exact match, strong negative when
+  // mismatched, neutral when the hint had no number.
+  if (hintNumber) {
+    if (candidateNumber && candidateNumber === hintNumber) {
+      score += 1000;
+    } else {
+      // Whole-word presence anywhere as a softer signal — handles flat names
+      // like "Flat 9, 28 Islip Manor Road" where the user typed "9".
+      const wordRx = new RegExp(`\\b${escapeRegex(hintNumber)}\\b`);
+      if (wordRx.test(candidate)) score += 200;
+      else score -= 1000;
+    }
+  }
+
+  // Token overlap on the rest of the address (street, town, postcode).
+  const tokens = hint.split(/[\s,]+/).filter(Boolean);
   for (const t of tokens) {
-    if (t.length >= 2 && a.includes(t)) score += t.length;
+    if (t === hintNumber) continue; // already handled above
+    if (t.length < 2) continue;
+    const wordRx = new RegExp(`\\b${escapeRegex(t)}\\b`);
+    if (wordRx.test(candidate)) score += t.length;
   }
   return score;
+}
+
+// Pull the leading house number/letter from an address line — "9", "9A",
+// "12B". Returns null if the line starts with a flat indicator or a name.
+function extractLeadingNumber(line) {
+  if (!line) return null;
+  const m = String(line).trim().toUpperCase().match(/^(\d{1,4}[A-Z]?)\b/);
+  return m ? m[1] : null;
+}
+
+// Pull the house number from a free-form address. Looks for a number-then-
+// space pattern at the start, OR a "FLAT 9, 28 …" composite.
+function extractHouseNumber(text) {
+  if (!text) return null;
+  const upper = String(text).toUpperCase();
+  const lead = upper.match(/^\s*(\d{1,4}[A-Z]?)\b/);
+  if (lead) return lead[1];
+  // Composite forms: "FLAT 9, 28 Islip" — caller wants 9, but we treat the
+  // first number we can find as the meaningful one.
+  const flat = upper.match(/\b(?:FLAT|APARTMENT|UNIT)\s+(\d{1,4}[A-Z]?)\b/);
+  if (flat) return flat[1];
+  // Fallback: any standalone integer-letter token.
+  const any = upper.match(/\b(\d{1,4}[A-Z]?)\b/);
+  return any ? any[1] : null;
+}
+
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
