@@ -89,20 +89,23 @@ if (!ANTHROPIC_API_KEY) {
 
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
-// Models per workload. Defaults are tuned for cost/quality balance —
-// override via env vars if you want to scale up to Opus or down to Haiku.
+// Models per workload. Defaults are tuned for cost — Haiku 4.5 produces
+// excellent senior-analyst-grade reports at ~1/3 the price of Sonnet. Set
+// ANTHROPIC_MODEL=claude-sonnet-4-6 if you want richer prose at higher cost.
 //
 //   ANTHROPIC_MODEL              — main property/company synthesis
-//   ANTHROPIC_MODEL_COMPARABLES  — market-comparables agent (web search)
+//   ANTHROPIC_MODEL_COMPARABLES  — market-comparables + web-search agents
 //   ANTHROPIC_MODEL_CHAT         — follow-up chat panel
+//   ANTHROPIC_MODEL_MEMO         — investment memo (defaults to MODEL)
 //
 // Per-run cost guide (rough, varies with input size):
-//   sonnet-4-6:  $3 in / $15 out per 1M tokens   ~$0.02-0.05 per report
-//   haiku-4-5:   $1 in /  $5 out per 1M tokens   ~$0.005-0.015 per report
-//   opus-4-7:    $5 in / $25 out per 1M tokens   ~$0.05-0.15 per report
-const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+//   haiku-4-5:   $1 in /  $5 out per 1M tokens   ~$0.015-0.05 per report
+//   sonnet-4-6:  $3 in / $15 out per 1M tokens   ~$0.05-0.15  per report
+//   opus-4-7:    $5 in / $25 out per 1M tokens   ~$0.10-0.30  per report
+const MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5';
 const MODEL_COMPARABLES = process.env.ANTHROPIC_MODEL_COMPARABLES || MODEL;
 const MODEL_CHAT = process.env.ANTHROPIC_MODEL_CHAT || 'claude-haiku-4-5';
+const MODEL_MEMO = process.env.ANTHROPIC_MODEL_MEMO || MODEL;
 
 const app = express();
 // Render and most PaaS providers terminate TLS at a proxy and forward the
@@ -1070,7 +1073,7 @@ app.post('/api/investment-memo', async (req, res) => {
   let collected = '';
   try {
     const stream = anthropic.messages.stream({
-      model: MODEL,
+      model: MODEL_MEMO,
       max_tokens: 4000,
       system: INVESTMENT_MEMO_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: buildInvestmentMemoUserMessage(report) }],
