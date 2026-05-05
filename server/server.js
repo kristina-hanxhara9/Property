@@ -955,6 +955,7 @@ app.post('/api/comparables', async (req, res) => {
           type: 'web_search_20260209',
           name: 'web_search',
           max_uses: 6,
+          allowed_callers: ['direct'],
           allowed_domains: [
             'rightmove.co.uk',
             'zoopla.co.uk',
@@ -1121,6 +1122,7 @@ async function runWebSearchAgent(res, { systemPrompt, userMessage, allowedDomain
           type: 'web_search_20260209',
           name: 'web_search',
           max_uses: maxUses || 6,
+          allowed_callers: ['direct'],
           allowed_domains: allowedDomains,
         },
       ],
